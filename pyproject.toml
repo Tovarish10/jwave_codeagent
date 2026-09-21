@@ -14,6 +14,9 @@ dependencies = [
     "langchain-openai>=1.6,<2",
     "langgraph>=1.2,<2",
     "python-dotenv>=1.0",
+    # 交互式 CLI（TUI）：可视化流水线、配置编辑器、历史记录
+    "rich>=13.7",
+    "prompt_toolkit>=3.0",
 ]
 
 [project.optional-dependencies]
@@ -23,6 +26,7 @@ dev = ["pytest>=8", "pyyaml>=6"]
 
 [project.scripts]
 jwave-flow = "jwave_flow.cli:main"
+jwave-tui = "jwave_flow.tui:main"
 
 [tool.setuptools]
 packages = ["jwave_flow"]

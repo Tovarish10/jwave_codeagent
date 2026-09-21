@@ -32,19 +32,12 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--out", type=Path, help="把最终代码写到该文件")
     p.add_argument("--json", action="store_true", help="以 JSON 打印完整最终状态")
     p.add_argument("--quiet", action="store_true", help="不打印过程日志")
+    p.add_argument("--tui", action="store_true", help="强制使用交互式界面（可视化流水线）")
+    p.add_argument("--no-tui", action="store_true", help="禁用交互式界面（无需求时直接报错）")
     return p
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = _build_parser().parse_args(argv)
-
-    query = args.query
-    if args.query_file:
-        query = Path(args.query_file).read_text(encoding="utf-8").strip()
-    if not query:
-        print("错误：请提供需求（位置参数 query 或 --query-file）", file=sys.stderr)
-        return 2
-
+def _overrides_from_args(args) -> dict:
     overrides: dict = {}
     if args.kb:
         overrides["kb_path"] = args.kb
@@ -61,7 +54,41 @@ def main(argv: list[str] | None = None) -> int:
         overrides["coder_model"] = args.model
     if args.quiet:
         overrides["verbose"] = False
+    return overrides
 
+
+def main(argv: list[str] | None = None) -> int:
+    args = _build_parser().parse_args(argv)
+
+    query = args.query
+    if args.query_file:
+        query = Path(args.query_file).read_text(encoding="utf-8").strip()
+
+    # 没有需求时（或显式 --tui）进入交互式界面；有 --json 说明是脚本场景，不自动进 TUI
+    wants_tui = args.tui or (
+        not query and not args.no_tui and not args.json and sys.stdin is not None and sys.stdin.isatty()
+    )
+    if wants_tui:
+        from .tui import RICH_AVAILABLE, run_tui
+
+        if not RICH_AVAILABLE:
+            print(
+                "交互式界面需要 rich：pip install rich prompt_toolkit\n"
+                "或改用非交互模式：jwave_flow \"你的需求\"",
+                file=sys.stderr,
+            )
+            return 2
+        return run_tui(
+            _overrides_from_args(args),
+            initial_query=(query or "").strip(),
+            auto_out=args.out,
+        )
+
+    if not query:
+        print("错误：请提供需求（位置参数 query 或 --query-file）", file=sys.stderr)
+        return 2
+
+    overrides = _overrides_from_args(args)
     settings = Settings.from_env(**overrides)
     print(f"知识库: {settings.resolved_kb_path()}", file=sys.stderr)
     print(

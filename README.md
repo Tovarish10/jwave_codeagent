@@ -78,6 +78,68 @@ cp .env.example .env
 
 ## 运行
 
+### 交互式 CLI（推荐，可视化）
+
+不带任何参数运行就会进入交互界面（也可以显式 `--tui`）：
+
+```bash
+python -m jwave_flow          # 无参数 -> 交互式界面
+python -m jwave_flow --tui    # 显式进入
+jwave-tui                     # 安装后等价的入口命令
+```
+
+```
+  1  新建仿真任务（自然语言 → 代码 → 执行 → 校验）
+  2  运行配置（模型 / 后端 / 三道关）
+  3  知识库速览
+  4  历史记录
+  5  使用说明
+  q  退出
+```
+
+任务运行时会**实时画出流水线**：每个节点（① 需求分析 … ⑧ 输出）的状态、用时、备注，
+关卡计数与最新日志随 `LangGraph.stream()` 的节点事件逐条刷新；
+跑完直接给出三道关结论、自检数据、stdout/stderr、带语法高亮的最终代码。
+
+```
+╭────────────────────────────── 流程 ──────────────────────────────╮
+│ ✔ ① 需求分析 → ✔ ② 知识检索 → ✔ ③ 模板转换 → ✔ ④ 参数提取 →     │
+│ ✔ ④b 参数物理预检 → ✔ ⑤ 代码生成 → ✔ ⑤b 静态检查 → ✔ ⑥ 执行 →  │
+│ ✔ ⑥b 语义数值门 → · ⑦ 代码纠错 → ✔ ⑧ 输出                       │
+│                                                                  │
+│    ✔   ① 需求分析        0.83s  需求描述：二维时域声学仿真…      │
+│ ┆  ✔   ② 知识检索        0.02s  命中 4 个片段                    │
+│ ┆  ✔   ⑤b 静态检查 ×2     0.01s  无问题                         │
+│ ┆  ✔   ⑥ 执行            3.21s  通过（subprocess 3.20s）         │
+│ ████████████████████████████  9/11                               │
+╰──────────────────────────────────────────────────────────────────╯
+```
+
+**在需求输入框里可以直接敲命令**：
+
+| 输入 | 作用 |
+|------|------|
+| `:help` | 使用说明 |
+| `:settings` | 打开配置编辑器（写入项目根的 `.env`，保留注释） |
+| `:kb` | 知识库概览，可继续关键词检索 |
+| `:history` | 历史记录列表 / 详情 / 清空 |
+| `:preset` | 用内置示例需求（二维、三维、带探针、验证） |
+| `@req.txt` | 从文件读取需求（适合长需求） |
+| `:q` | 取消当前输入 |
+
+「运行配置」里可直接改 API Key、模型、检索后端（`bm25`/`openai`）、执行后端
+（`subprocess`/`jupyter`/`mcp`/`auto`）、最大迭代轮数与三道关开关，改完即写入 `.env` 并
+**当场生效**；`v` 会做一次配置自检（Key / 端点 / 知识库 / 解释器 / 后端）。
+
+每次跑完会自动往 `run/history.jsonl` 追加一条记录（需求、三道关结论、自检数据、
+耗时、最终代码），可以在「历史记录」里回看或另存当时的代码。
+`--tui "你的需求"` 会带着需求直接进入界面（仍会显示配置并确认后才运行）。
+
+> 交互界面依赖 `rich` + `prompt_toolkit`（已在 `requirements.txt` / `pyproject.toml` 里）。
+> 任一缺失时会打印安装提示，并提示改用下面的非交互模式。
+
+### 非交互模式（脚本 / CI）
+
 ```bash
 # 基本用法
 python -m jwave_flow "生成一个 128x128 的二维时域声学仿真，声速 1500，5MHz 点源"
@@ -86,9 +148,13 @@ python -m jwave_flow "生成一个 128x128 的二维时域声学仿真，声速 
 python -m jwave_flow "..." --backend jupyter --top-k 6 --out sim.py
 python -m jwave_flow "..." --json          # 打印完整状态
 python -m jwave_flow --query-file req.txt --quiet
+python -m jwave_flow --no-tui              # 强制不进入交互界面
 ```
 
-代码里调用：
+> 传入需求参数后默认走非交互路径；只有在**没有需求**且 stdin 是终端时才自动进入交互界面，
+> 所以 `jwave_flow "..." | tee out.py` 这类管道用法不会被 TUI 打断。
+
+### 代码里调用
 
 ```python
 from jwave_flow import SimulationWorkflow, Settings
@@ -222,8 +288,14 @@ jwave-dify-langchain/
 │   ├── knowledge.py            # 知识库切分 + BM25/embedding 检索
 │   ├── executor.py             # subprocess / jupyter / mcp 执行器
 │   ├── state.py                # LangGraph 状态
+│   ├── physics.py              # 方案一 参数物理预检
+│   ├── static_check.py         # 方案二 AST 静态规则检查
+│   ├── semantic.py             # 方案三 输出契约 + 数值门
 │   ├── graph.py                # 工作流图（含循环）
-│   └── cli.py                  # python -m jwave_flow
+│   ├── cli.py                  # python -m jwave_flow（TUI / 非交互两条路径）
+│   ├── tui.py                  # 交互式界面：菜单 / 向导 / 实时流水线 / 配置编辑器
+│   ├── panels.py               # Rich 渲染件（流程、关卡、报告、知识库、历史）
+│   └── history.py              # run/history.jsonl 读写
 ├── kb/                         # 知识库 + 备份 + 修改记录
 ├── tools/fix_kb.py             # 知识库修正工具（幂等 / 可回滚）
 ├── docs/MAPPING.md             # Dify ↔ LangGraph 映射表
@@ -236,3 +308,6 @@ jwave-dify-langchain/
 * `bm25` 后端是词法检索，不含 Dify 的 `qwen3-rerank` 重排；需要重排请用 `openai` embedding 后端或自行换 vector store。
 * 「需求分析」节点在原图中输出未被下游引用，此处忠实保留（见 `docs/MAPPING.md`）。
 * 若生成的 jwave 代码长期无法自愈，多半是知识库与所装 jwave 版本仍有差异——用 `--json` 看 `stderr` / `trace` 定位。
+* 交互界面里的「执行用时」是相邻节点事件的时间差，因此包含了该节点内的 LLM 调用耗时；
+  它用于观察节奏，不是精确的 profiler。
+* `rich` / `prompt_toolkit` 仅交互界面需要；两者缺失时非交互模式依然可用。
