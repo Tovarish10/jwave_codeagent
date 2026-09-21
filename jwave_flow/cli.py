@@ -63,26 +63,43 @@ def _overrides_from_args(args) -> dict:
 
 
 def _check_api(overrides: dict) -> int:
-    """``--check-api``：把「网络/鉴权/模型名」问题单独暴露出来。"""
+    """``--check-api``：把「配置 / 网络 / 鉴权 / 模型名」问题单独暴露出来。
+
+    先做**配置自洽性**检查（Key 与 endpoint 是否同一家），再发探测请求——
+    否则会像以前那样：拿 DeepSeek 的 key 去探测 OpenAI 的地址，
+    然后把「配置串了」误报成「网络不通」。
+    """
+    from .config import endpoint_key_mismatch, endpoint_provider, key_source
     from .errors import format_error_text
     from .llm import probe_api
 
     settings = Settings.from_env(**overrides)
     endpoint = settings.openai_base_url or "https://api.openai.com/v1"
+    source = key_source()
     print(
-        f"探测 {endpoint}\n  模型: {settings.analyst_model}\n"
-        f"  API Key: {'已配置' if settings.openai_api_key else '未配置 ⚠️'}",
+        f"探测 {endpoint}（provider={endpoint_provider(settings.openai_base_url)}）\n"
+        f"  模型: {settings.analyst_model}\n"
+        f"  API Key: {'已配置' if settings.openai_api_key else '未配置 ⚠️'}"
+        + (f"（来自 {source}）" if settings.openai_api_key and source else ""),
         file=sys.stderr,
     )
     if not settings.openai_api_key:
         print("❌ 未配置 API Key（OPENAI_API_KEY / DEEPSEEK_API_KEY）", file=sys.stderr)
         return 2
 
+    mismatch = endpoint_key_mismatch(settings)
+    if mismatch:
+        print(f"❌ 配置不匹配，请先改这里（网络多半没问题）：\n  · {mismatch}", file=sys.stderr)
+        return 2
+
     ok, payload, elapsed = probe_api(settings, timeout=20.0)
     if ok:
         print(f"✅ API 连通（{elapsed:.2f}s）\n  返回：{str(payload)[:200]}", file=sys.stderr)
         return 0
-    print(f"❌ 连通性测试失败（{elapsed:.2f}s）\n  {format_error_text(payload)}", file=sys.stderr)
+    print(
+        f"❌ 连通性测试失败（{elapsed:.2f}s）\n  {format_error_text(payload, settings=settings)}",
+        file=sys.stderr,
+    )
     return 2
 
 
@@ -142,7 +159,7 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:  # noqa: BLE001 - 网络/服务端异常也要给人话，而不是 traceback
         from .errors import format_error_text
 
-        print(f"\n运行失败：\n  {format_error_text(exc)}", file=sys.stderr)
+        print(f"\n运行失败：\n  {format_error_text(exc, settings=settings)}", file=sys.stderr)
         return 2
 
     if args.json:
@@ -169,10 +186,15 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  ❌ 静态检查仍有 {len(result['static_issues'])} 处问题", file=sys.stderr)
         for line in result.get("semantic_issues") or []:
             print(f"  ❌ 语义门: {line}", file=sys.stderr)
-        print(
-            "  ✅ 语义校验通过" if result.get("verified") else "  ⚠️ 未通过语义校验，请人工确认",
-            file=sys.stderr,
-        )
+        if result.get("verified"):
+            print("  ✅ 语义校验通过", file=sys.stderr)
+        else:
+            print("  ⚠️ 未通过语义校验，请人工确认", file=sys.stderr)
+            raw = (result.get("last_error") or result.get("stderr") or "").strip()
+            if raw:
+                print("  ---- 最近一次执行的错误输出 ----", file=sys.stderr)
+                for line in raw.splitlines()[-15:]:
+                    print(f"  | {line}", file=sys.stderr)
 
     if args.out:
         Path(args.out).write_text(result.get("text", ""), encoding="utf-8")

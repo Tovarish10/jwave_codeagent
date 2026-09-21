@@ -47,6 +47,10 @@ class WorkflowState(TypedDict, total=False):
     code_final: str
     stdout: str
     stderr: str
+    # 最近一次真实执行失败的信息（永不覆盖，便于事后定位）
+    last_error: str
+    # 本次要交给「代码纠错」的原因（可能来自运行报错 / 静态检查 / 语义门）
+    fix_reason: str
     results: Annotated[list[str], _overwrite]
     outputs: Annotated[list[str], _overwrite]
     new_files: Annotated[list[str], _overwrite]

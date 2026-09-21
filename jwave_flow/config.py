@@ -20,11 +20,83 @@ except Exception:  # pragma: no cover
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_KB = PROJECT_ROOT / "kb" / "jwave_kb_organized.md"
+DEEPSEEK_DEFAULT_BASE_URL = "https://api.deepseek.com/v1"
 
 
 def _env(name: str, default: str | None = None) -> str | None:
     value = os.environ.get(name)
     return value if value not in (None, "") else default
+
+
+def resolve_llm_endpoint() -> tuple[str | None, str | None]:
+    """Return ``(api_key, base_url)`` keeping the **pair** consistent.
+
+    Regression guard: previously only ``DEEPSEEK_API_KEY`` was honoured as a
+    key *fallback*, while ``base_url`` stayed ``None`` -> the request went to
+    ``api.openai.com`` carrying a DeepSeek key and died with
+    ``Connection reset by peer``.  The endpoint now follows whichever key was
+    actually picked.
+    """
+    openai_key = _env("OPENAI_API_KEY")
+    deepseek_key = _env("DEEPSEEK_API_KEY")
+    explicit_base = _env("OPENAI_BASE_URL") or _env("DEEPSEEK_BASE_URL")
+
+    key = openai_key or deepseek_key
+    base = explicit_base
+    if base is None and key is not None:
+        # 用的是 DeepSeek 的 key（没设 OPENAI_API_KEY，或两者其实是同一个 key）
+        if openai_key is None or key == deepseek_key:
+            base = DEEPSEEK_DEFAULT_BASE_URL
+    return key, base
+
+
+# --------------------------------------------------------------------------- #
+# endpoint / key 一致性判断（供错误归因使用）
+# --------------------------------------------------------------------------- #
+def key_source() -> str | None:
+    """实际生效的 API Key 来自哪个环境变量。"""
+    if _env("OPENAI_API_KEY"):
+        return "OPENAI_API_KEY"
+    if _env("DEEPSEEK_API_KEY"):
+        return "DEEPSEEK_API_KEY"
+    return None
+
+
+def endpoint_provider(base_url: str | None) -> str:
+    """粗略判断 endpoint 属于哪家服务商。"""
+    if not base_url:
+        return "openai"                      # langchain/openai 自己的默认地址
+    url = base_url.lower()
+    if "deepseek" in url:
+        return "deepseek"
+    if "openai.com" in url:
+        return "openai"
+    if "dashscope" in url or "aliyun" in url:
+        return "dashscope"
+    if "localhost" in url or "127.0.0.1" in url or "0.0.0.0" in url:
+        return "local"
+    return "other"
+
+
+def endpoint_key_mismatch(settings: "Settings | None") -> str | None:
+    """Key 与 endpoint 明显不属于同一服务商时给出说明，否则 ``None``。
+
+    典型的坑：`DEEPSEEK_API_KEY` 配上了 `OPENAI_BASE_URL=https://api.openai.com/v1`
+    （或没设 base_url 而落到 OpenAI 默认地址）。此时报错信息看起来像网络问题
+    （`Connection reset by peer`），实际是配置串了——必须指出来，否则用户会
+    一直去调 MTU / 代理。
+    """
+    if settings is None or key_source() != "DEEPSEEK_API_KEY":
+        return None
+    provider = endpoint_provider(settings.openai_base_url)
+    if provider in ("deepseek", "local", "other"):
+        return None                           # 自建网关/中转都算合理
+    endpoint = settings.openai_base_url or "https://api.openai.com/v1（默认）"
+    return (
+        f"API Key 来自 DEEPSEEK_API_KEY，但 endpoint 指向 {endpoint}"
+        f"（provider={provider}）。请设置 OPENAI_BASE_URL={DEEPSEEK_DEFAULT_BASE_URL}"
+        "（只设 DEEPSEEK_API_KEY、不设 OPENAI_BASE_URL 时会自动推断）"
+    )
 
 
 @dataclass
@@ -96,9 +168,10 @@ class Settings:
     def from_env(cls, **overrides) -> "Settings":
         load_dotenv(PROJECT_ROOT / ".env")
         load_dotenv()  # also honour a .env in the current directory
+        api_key, base_url = resolve_llm_endpoint()
         kwargs: dict = dict(
-            openai_api_key=_env("OPENAI_API_KEY") or _env("DEEPSEEK_API_KEY"),
-            openai_base_url=_env("OPENAI_BASE_URL") or _env("DEEPSEEK_BASE_URL"),
+            openai_api_key=api_key,
+            openai_base_url=base_url,
             analyst_model=_env("ANALYST_MODEL", "deepseek-v4-flash"),
             coder_model=_env("CODER_MODEL", "deepseek-v4-flash"),
             temperature=float(_env("LLM_TEMPERATURE", "0.7")),

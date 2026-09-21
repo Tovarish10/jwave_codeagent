@@ -29,6 +29,29 @@ def test_catches_float_positions():
     assert "R3_FLOAT_POSITIONS" in _codes("positions = (jnp.array([64.0]), jnp.array([64.0]))\n")
 
 
+def test_catches_list_signals_and_positions():
+    """真实踩坑：Sources 的 signals/positions 传成 list -> TypeError。"""
+    codes = _codes(
+        "src = Sources([(64, 64)], [tone_burst(1/dt, 5e6, 1)], dt, domain)\n"
+    )
+    assert {"R9_SIGNALS_LIST", "R10_POSITIONS_LIST"} <= codes
+
+
+def test_catches_list_signals_passed_as_keyword():
+    codes = _codes("src = Sources(positions=p, signals=[sig], dt=dt, domain=d)\n")
+    assert "R9_SIGNALS_LIST" in codes
+
+
+def test_correct_sources_call_is_not_flagged():
+    """知识库里的正确写法不能被误报。"""
+    good = (
+        "positions = (jnp.array([64]), jnp.array([64]))\n"
+        "signals = jnp.expand_dims(signal_1d, 0)\n"
+        "sources = Sources(positions, signals, dt, domain)\n"
+    )
+    assert check_code(good).ok, [i.render() for i in check_code(good).issues]
+
+
 def test_catches_sources_keywords():
     assert "R4_SOURCES_KEYWORDS" in _codes("s = Sources(positions=p, signals=s, dt=dt, domain=d)\n")
 

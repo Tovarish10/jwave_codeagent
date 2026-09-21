@@ -433,7 +433,7 @@ class Runner:
             # 不抛出：交给调用方决定怎么展示（TUI 弹面板 / CLI 打日志）
             state["error"] = errors.error_summary(failure)
             state["error_type"] = type(failure).__name__
-            state["error_hints"] = errors.diagnose_error(failure)
+            state["error_hints"] = errors.diagnose_error(failure, self.settings)
             state["success"] = False
             state["verified"] = False
         elif interrupted:
@@ -536,7 +536,7 @@ class TuiApp:
             except Abort:
                 self.console.print("[dim]已取消[/dim]")
             except Exception as exc:  # noqa: BLE001 - 界面兜底：不把 traceback 甩给用户
-                self.console.print(panels.error_panel("操作失败", exc))
+                self.console.print(panels.error_panel("操作失败", exc, settings=self.settings))
                 if os.environ.get("JWAVE_DEBUG"):
                     raise
         self.console.print("[dim]再见 👋[/dim]")
@@ -633,7 +633,7 @@ class TuiApp:
             self.console.print("[yellow]已中断[/yellow]")
             return
         except Exception as exc:  # noqa: BLE001 - 兜底：再意外也不能把 traceback 甩给用户
-            self.console.print(panels.error_panel("运行失败", exc))
+            self.console.print(panels.error_panel("运行失败", exc, settings=self.settings))
             return
 
         # 节点里抛出的异常被 Runner 记进 state（而不是一路抛上来）
@@ -1003,7 +1003,7 @@ def run_tui(
             raise
         from .errors import format_error_text
 
-        print(f"\n界面遇到未预期的错误：\n  {format_error_text(exc)}", file=sys.stderr)
+        print(f"\n界面遇到未预期的错误：\n  {format_error_text(exc, settings=settings)}", file=sys.stderr)
         print("（设置 JWAVE_DEBUG=1 可查看完整 traceback）", file=sys.stderr)
         return 1
 

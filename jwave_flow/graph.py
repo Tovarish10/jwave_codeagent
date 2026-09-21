@@ -195,8 +195,9 @@ class SimulationWorkflow:
             "static_report": report.to_dict(),
         }
         if issues:
-            # 复用「代码纠错」节点：把静态报告当作它的“报错”输入
-            out["stderr"] = "静态规则检查未通过：\n" + "\n".join(f"- {i}" for i in issues)
+            # 复用「代码纠错」节点：把静态报告作为它的“报错”输入。
+            # 注意写 fix_reason 而不是 stderr —— stderr 要保留真实执行错误。
+            out["fix_reason"] = "静态规则检查未通过：\n" + "\n".join(f"- {i}" for i in issues)
             note = f"⑤b 静态检查 发现 {len(issues)} 处问题（第 {rounds} 轮）"
         else:
             note = "⑤b 静态检查 通过"
@@ -220,6 +221,8 @@ class SimulationWorkflow:
         return {
             **result.to_dict(),
             "success": result.ok,
+            "last_error": "" if result.ok else result.stderr,
+            "fix_reason": "",
             "iterations": iterations,
             "trace": self._log(
                 state,
@@ -233,6 +236,19 @@ class SimulationWorkflow:
         if not self.settings.semantic_check_enabled:
             return {"verified": True, "trace": self._log(state, "⑥b 语义门 已关闭")}
 
+        # 运行本身就没通过时，不要谎报“缺少自检行”，如实反映执行失败
+        if not state.get("success"):
+            raw = (state.get("stderr") or state.get("last_error") or "").strip()
+            tail = raw.splitlines()[-1] if raw else ""
+            issues = [f"执行失败：{tail}" if tail else "执行失败（没有任何错误输出）"]
+            return {
+                "semantic_issues": issues,
+                "selfcheck": {},
+                "verified": False,
+                "fix_reason": raw or "执行失败且无输出",
+                "trace": self._log(state, f"⑥b 语义门 未通过（运行失败：{tail or '无输出'}）"),
+            }
+
         expected = (state.get("param_check_report") or {}).get("scalars", {})
         report = check_semantics(state.get("stdout", ""), self.settings, expected=expected)
         issues = list(report.issues)
@@ -243,7 +259,7 @@ class SimulationWorkflow:
             "verified": report.ok,
         }
         if issues:
-            out["stderr"] = report.feedback()
+            out["fix_reason"] = report.feedback()
             note = f"⑥b 语义门 未通过（{len(issues)} 项）"
         else:
             note = "⑥b 语义门 通过"
@@ -268,10 +284,11 @@ class SimulationWorkflow:
         return "fix"
 
     def n_fix(self, state: WorkflowState) -> dict:
+        reason = state.get("fix_reason") or state.get("stderr", "")
         messages = code_fix_prompt().format_messages(
             code_final=state.get("code_final", ""),
             context=state.get("kb_context", ""),
-            stderr=state.get("stderr", ""),
+            stderr=reason,
         )
         messages = list(messages) + [HumanMessage(content=SELFCHECK_CONTRACT)]
         fixed = invoke_code_llm(self.coder_llm, messages, FixedCode, ["code_2", "code"])
@@ -296,13 +313,7 @@ class SimulationWorkflow:
         if state.get("success"):
             return "gate"
         if int(state.get("iterations", 0)) >= self.settings.max_iterations:
-            if self.settings.verbose:
-                print(
-                    f"  ! 达到最大迭代次数 {self.settings.max_iterations}，"
-                    "输出当前代码（**未通过语义校验**）",
-                    file=sys.stderr, flush=True,
-                )
-            return "gate"
+            return "gate"          # 交给语义门统一给出结论（避免重复打印）
         return "fix"
 
     # -- assembly ------------------------------------------------------ #
@@ -351,7 +362,7 @@ class SimulationWorkflow:
         start = time.time()
         state: WorkflowState = {
             "query": query, "trace": [], "iterations": 0, "param_check_rounds": 0,
-            "static_rounds": 0,
+            "static_rounds": 0, "fix_reason": "", "last_error": "",
         }
         out = self.graph.invoke(state, **kwargs)
         out["elapsed"] = time.time() - start  # type: ignore[index]
@@ -359,7 +370,7 @@ class SimulationWorkflow:
 
     def stream(self, query: str, **kwargs):
         yield from self.graph.stream(
-            {"query": query, "trace": [], "iterations": 0, "param_check_rounds": 0, "static_rounds": 0}, **kwargs
+            {"query": query, "trace": [], "iterations": 0, "param_check_rounds": 0, "static_rounds": 0, "fix_reason": "", "last_error": ""}, **kwargs
         )
 
     def close(self) -> None:

@@ -433,12 +433,15 @@ def _hints_block(hints: Sequence[str], summary: str) -> Group:
     return Group(*body)
 
 
-def error_panel(title: str, exc: BaseException) -> Panel:
-    """异常 -> 可直接打印的诊断面板（文案与 CLI 共用 errors 模块）。"""
+def error_panel(title: str, exc: BaseException, *, settings: Any | None = None) -> Panel:
+    """异常 -> 可直接打印的诊断面板（文案与 CLI 共用 errors 模块）。
+
+    传入 ``settings`` 时会把「Key 与 endpoint 不匹配」这类配置问题排在网络建议之前。
+    """
     from .errors import diagnose_error, error_summary
 
     return Panel(
-        _hints_block(list(diagnose_error(exc)), error_summary(exc)),
+        _hints_block(list(diagnose_error(exc, settings)), error_summary(exc)),
         title=f"[bold]{title}[/bold]",
         border_style="red",
         box=box.ROUNDED,

@@ -6,6 +6,10 @@
 from __future__ import annotations
 
 import errno
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # 仅为类型标注，避免运行期循环导入
+    from .config import Settings
 
 # 网络类问题的常见特征（httpx / httpcore / openai / socket 各自的措辞都覆盖到）
 _NETWORK_MARKERS = (
@@ -59,12 +63,29 @@ def is_network_error(exc: BaseException) -> bool:
     return any(marker in blob for marker in _NETWORK_MARKERS)
 
 
-def diagnose_error(exc: BaseException) -> list[str]:
-    """根据异常返回若干条排查建议（可能为空）。"""
+def diagnose_error(exc: BaseException, settings: "Settings | None" = None) -> list[str]:
+    """根据异常返回若干条排查建议（可能为空）。
+
+    ``settings`` 传入时会**先**检查 Key 与 endpoint 是否属于同一服务商——
+    `DEEPSEEK_API_KEY` 配 OpenAI 地址同样会表现为 `Connection reset by peer`，
+    如果只看异常本身就会误判成网络问题，把人引到 MTU/代理上去。
+    """
     blob = _blob(exc)
     hints: list[str] = []
 
+    mismatch: str | None = None
+    if settings is not None:
+        from .config import endpoint_key_mismatch
+
+        mismatch = endpoint_key_mismatch(settings)
+
+    if mismatch:
+        hints.append("先检查配置：API Key 与 endpoint 不属于同一服务商（这通常就是本错误的真正原因）")
+        hints.append(f"· {mismatch}")
+
     if is_network_error(exc):
+        if mismatch:
+            hints.append("· 先按上一条把 endpoint 改对再重试；下面几条只在配置正确后仍失败时才需要看")
         hints.extend(
             [
                 "这是网络层失败（连接被重置 / TLS 握手失败），不是生成代码的问题。",
@@ -85,7 +106,9 @@ def diagnose_error(exc: BaseException) -> list[str]:
     return hints
 
 
-def format_error_text(exc: BaseException, *, indent: str = "  ") -> str:
+def format_error_text(
+    exc: BaseException, *, indent: str = "  ", settings: "Settings | None" = None
+) -> str:
     """多行文本：摘要 + 排查建议，供终端 print 或 Rich Panel 使用。"""
-    lines = [error_summary(exc), "", *diagnose_error(exc)]
+    lines = [error_summary(exc), "", *diagnose_error(exc, settings)]
     return f"\n{indent}".join(lines)
