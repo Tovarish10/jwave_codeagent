@@ -67,6 +67,27 @@ class Settings:
     )
     workdir: Path = field(default_factory=lambda: PROJECT_ROOT / "run")
 
+    # --- 方案一：参数物理预检 (pre-codegen physical check) ---------------
+    param_check_enabled: bool = True
+    # 每波长最少网格点数（经验：PSTD 一般 ≥6，保守可取 8~10）
+    min_points_per_wavelength: float = 6.0
+    # 参数不合格时回退「参数提取」的最大重试轮数
+    param_check_max_rounds: int = 2
+    # 估算时间步 (jwave TimeAxis.from_medium 的默认 CFL)
+    default_cfl: float = 0.3
+
+    # --- 方案二：AST 静态规则检查 ----------------------------------------
+    static_check_enabled: bool = True
+
+    # --- 方案三：输出契约 + 数值门 ---------------------------------------
+    semantic_check_enabled: bool = True
+    # 是否强制要求生成代码打印 __JWAVE_SELFCHECK__ 自检行
+    require_selfcheck: bool = True
+    # |p|max 必须 > min_abs_max（否则视为激励没起作用）
+    min_abs_max: float = 0.0
+    # |p|max 必须 <= max_abs_max（否则视为数值发散）
+    max_abs_max: float = 1e12
+
     # --- Workflow -------------------------------------------------------
     max_iterations: int = 10          # mirrors Dify loop_count
     verbose: bool = True
@@ -90,6 +111,15 @@ class Settings:
             exec_python=_env("EXEC_PYTHON", sys.executable),
             exec_timeout=float(_env("EXEC_TIMEOUT", "600")),
             workdir=Path(_env("WORKDIR", str(PROJECT_ROOT / "run"))).expanduser(),
+            param_check_enabled=(_env("PARAM_CHECK", "1") not in ("0", "false", "False")),
+            static_check_enabled=(_env("STATIC_CHECK", "1") not in ("0", "false", "False")),
+            semantic_check_enabled=(_env("SEMANTIC_CHECK", "1") not in ("0", "false", "False")),
+            require_selfcheck=(_env("REQUIRE_SELFCHECK", "1") not in ("0", "false", "False")),
+            min_abs_max=float(_env("MIN_ABS_MAX", "0")),
+            max_abs_max=float(_env("MAX_ABS_MAX", "1e12")),
+            min_points_per_wavelength=float(_env("MIN_POINTS_PER_WAVELENGTH", "6")),
+            param_check_max_rounds=int(_env("PARAM_CHECK_MAX_ROUNDS", "2")),
+            default_cfl=float(_env("DEFAULT_CFL", "0.3")),
             max_iterations=int(_env("LOOP_MAX_ITERATIONS", "10")),
             verbose=(_env("VERBOSE", "1") not in ("0", "false", "False")),
         )

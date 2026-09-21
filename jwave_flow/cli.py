@@ -93,6 +93,22 @@ def main(argv: list[str] | None = None) -> int:
             f"耗时 {result.get('elapsed', 0):.1f}s",
             file=sys.stderr,
         )
+        # 方案一/二/三：把三道关卡的结论一并交代清楚
+        for line in result.get("param_warnings") or []:
+            print(f"  {line}", file=sys.stderr)
+        if result.get("param_issues"):
+            print(
+                f"  ❌ 参数预检未通过（{len(result['param_issues'])} 项）",
+                file=sys.stderr,
+            )
+        if result.get("static_issues"):
+            print(f"  ❌ 静态检查仍有 {len(result['static_issues'])} 处问题", file=sys.stderr)
+        for line in result.get("semantic_issues") or []:
+            print(f"  ❌ 语义门: {line}", file=sys.stderr)
+        print(
+            "  ✅ 语义校验通过" if result.get("verified") else "  ⚠️ 未通过语义校验，请人工确认",
+            file=sys.stderr,
+        )
 
     if args.out:
         Path(args.out).write_text(result.get("text", ""), encoding="utf-8")

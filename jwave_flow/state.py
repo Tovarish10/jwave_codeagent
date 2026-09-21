@@ -22,8 +22,26 @@ class WorkflowState(TypedDict, total=False):
     # --- ④ 参数提取 ------------------------------------------------------
     params_json: str
 
+    # --- ④b 参数物理预检（方案一，非 Dify 原生节点）---------------------
+    param_check_ok: bool
+    param_check_rounds: int
+    param_issues: Annotated[list[str], _overwrite]
+    param_warnings: Annotated[list[str], _overwrite]
+    param_constraints: Annotated[list[str], _overwrite]
+    param_check_report: Annotated[dict, _overwrite]
+
     # --- ⑤ 代码生成 ------------------------------------------------------
     code: str
+
+    # --- ⑤b AST 静态规则检查（方案二，非 Dify 原生节点）-----------------
+    static_issues: Annotated[list[str], _overwrite]
+    static_rounds: int
+    static_report: Annotated[dict, _overwrite]
+
+    # --- ⑥b 语义数值门（方案三，非 Dify 原生节点）-----------------------
+    semantic_issues: Annotated[list[str], _overwrite]
+    selfcheck: Annotated[dict, _overwrite]
+    verified: bool
 
     # --- ⑥ 循环（执行 → 纠错） -------------------------------------------
     code_final: str

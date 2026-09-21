@@ -19,7 +19,13 @@ from jwave_flow.cli import main
 REQUIREMENT = "需求描述：二维时域声学仿真，1500 m/s，5 MHz 点源。"
 PARAMS = '{"sound_speed": 1500.0, "source_frequency": 5e6}'
 BUGGY = "import sys\nprint('run 1')\nsys.stderr.write('NameError: name jnp is not defined\\n')\n"
-FIXED = "import jax.numpy as jnp\nprint('run 2 ok', jnp.zeros(2).sum())\n"
+FIXED = (
+    "import json\n"
+    "import jax.numpy as jnp\n"
+    "print('run 2 ok', jnp.zeros(2).sum())\n"
+    "print(\"__JWAVE_SELFCHECK__\" + json.dumps("
+    "{'finite': True, 'abs_max': 5016.6, 'shape': [1001, 64, 64, 1], 'f0': 5e6}))\n"
+)
 
 
 def _reply_for(messages) -> str:
@@ -100,8 +106,13 @@ def test_full_workflow_against_mock_llm(mock_openai, tmp_path, monkeypatch, caps
 
     assert rc == 0
     assert out["success"] is True
+    assert out["verified"] is True
     assert out["iterations"] == 2                    # first run fails, repair, second passes
     assert out["text"] == FIXED.rstrip("\n")
     assert out["requirement"] == REQUIREMENT
     assert out["stdout"].startswith("run 2 ok")
-    assert len(out["trace"]) == 9
+    # 三道新关卡都真的跑过了（方案一/二/三）
+    trace = "\n".join(out["trace"])
+    for marker in ["④b 参数预检 通过", "⑤b 静态检查", "⑥b 语义门 通过", "⑦ 代码纠错", "⑧ 输出"]:
+        assert marker in trace
+    assert out["selfcheck"]["abs_max"] == 5016.6
