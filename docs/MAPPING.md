@@ -28,7 +28,7 @@
 
 | 主题 | Dify 原实现 | 本实现 | 原因 |
 |------|-------------|--------|------|
-| 模型 | marketplace 插件 `deepseek-v4-pro` / `deepseek-coder` | **OpenAI 兼容接口**，默认 `deepseek-v4-flash`（`ANALYST_MODEL` / `CODER_MODEL` 可分别覆盖） | 可移植性；换 vLLM/Ollama/OpenAI 只改 env |
+| 模型 | marketplace 插件 `deepseek-v4-pro` / `deepseek-coder` | **OpenAI 兼容接口**，默认 `deepseek-flash`（`ANALYST_MODEL` / `CODER_MODEL` 可分别覆盖） | 可移植性；换 vLLM/Ollama/OpenAI 只改 env |
 | 结构化输出 | 插件侧 JSON Schema (`{code}` / `{code_2}`) | 优先 `with_structured_output`，失败自动回退到纯文本 + 去 ``` 围栏 | 并非所有 OpenAI 兼容端点都支持 `response_format`/tool calling |
 | 知识库 | 云端数据集 + `qwen3-rerank` 重排，`top_k=4` | 本地 markdown + **BM25**（默认，零依赖）；可选 `openai` embedding 后端；保留 `top_k=4` | 可移植、可离线；重排仅在 embedding 后端下才有意义 |
 | 代码执行 | `RUN_PYTHON_CODE` MCP 工具（失效） | **可插拔执行器**：`subprocess`(默认) / `jupyter` / `mcp` / `auto` | MCP 服务器已失效；三种后端都复刻同一返回契约 |

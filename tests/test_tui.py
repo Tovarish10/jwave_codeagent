@@ -168,7 +168,7 @@ def test_history_roundtrip_and_corrupt_lines(tmp_path):
     assert len(records) == 2
     assert records[0]["title"] == "第二个任务"      # 最新的在前
     assert records[1]["gates"]["semantic_ok"] is True
-    assert records[1]["model"]["analyst"] == "deepseek-v4-flash"
+    assert records[1]["model"]["analyst"] == "deepseek-flash"
     assert clear_records(path) is True
     assert load_records(path) == []
 

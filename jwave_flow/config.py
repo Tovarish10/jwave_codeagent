@@ -106,8 +106,8 @@ class Settings:
     # --- LLM (anything that speaks the OpenAI chat-completions API) ---
     openai_api_key: str | None = None
     openai_base_url: str | None = None
-    analyst_model: str = "deepseek-v4-flash"
-    coder_model: str = "deepseek-v4-flash"
+    analyst_model: str = "deepseek-flash"
+    coder_model: str = "deepseek-flash"
     temperature: float = 0.7
     request_timeout: float = 120.0
     max_retries: int = 2
@@ -172,8 +172,8 @@ class Settings:
         kwargs: dict = dict(
             openai_api_key=api_key,
             openai_base_url=base_url,
-            analyst_model=_env("ANALYST_MODEL", "deepseek-v4-flash"),
-            coder_model=_env("CODER_MODEL", "deepseek-v4-flash"),
+            analyst_model=_env("ANALYST_MODEL", "deepseek-flash"),
+            coder_model=_env("CODER_MODEL", "deepseek-flash"),
             temperature=float(_env("LLM_TEMPERATURE", "0.7")),
             request_timeout=float(_env("LLM_TIMEOUT", "120")),
             kb_path=Path(_env("KB_PATH", str(DEFAULT_KB))).expanduser(),

@@ -37,7 +37,7 @@ START → ① 需求分析 → ② 知识检索 → ③ 模板转换 → ④ 参
 
 | 关注点 | 做法 |
 |--------|------|
-| **模型** | 只依赖**通用 OpenAI 兼容接口**（`langchain-openai.ChatOpenAI` + `OPENAI_BASE_URL`）。默认 DeepSeek `deepseek-v4-flash`，换 vLLM / Ollama / OpenAI / 通义 只改环境变量 |
+| **模型** | 只依赖**通用 OpenAI 兼容接口**（`langchain-openai.ChatOpenAI` + `OPENAI_BASE_URL`）。默认 DeepSeek `deepseek-flash`，换 vLLM / Ollama / OpenAI / 通义 只改环境变量 |
 | **路径** | 不硬编码绝对路径；根目录由 `__file__` 推导，其余全部走 `.env`，相对路径按项目根解析 |
 | **检索** | 默认**纯 Python BM25**，零额外依赖、可离线；可切到 OpenAI embedding + 内存向量库 |
 | **代码执行** | 可插拔执行器 `subprocess` / `jupyter` / `mcp` / `auto`，同一返回契约 |
@@ -66,8 +66,8 @@ cp .env.example .env
 |------|------|------|
 | `OPENAI_API_KEY` | — | **必填**（也接受 `DEEPSEEK_API_KEY`） |
 | `OPENAI_BASE_URL` | OpenAI 官方 | 任意 OpenAI 兼容端点 |
-| `ANALYST_MODEL` | `deepseek-v4-flash` | 需求分析 / 参数提取 |
-| `CODER_MODEL` | `deepseek-v4-flash` | 代码生成 / 代码纠错 |
+| `ANALYST_MODEL` | `deepseek-flash` | 需求分析 / 参数提取 |
+| `CODER_MODEL` | `deepseek-flash` | 代码生成 / 代码纠错 |
 | `KB_PATH` | `kb/jwave_kb_organized.md` | 知识库 markdown |
 | `RETRIEVAL_BACKEND` | `bm25` | `bm25` \| `openai` |
 | `RETRIEVAL_TOP_K` | `4` | 对应 Dify 的 `top_k` |
@@ -249,7 +249,7 @@ python tools/fix_kb.py --revert     # 一键还原为原始知识库
 ```bash
 export OPENAI_API_KEY="$DEEPSEEK_API_KEY"
 export OPENAI_BASE_URL=https://api.deepseek.com/v1
-export ANALYST_MODEL=deepseek-v4-flash CODER_MODEL=deepseek-v4-flash
+export ANALYST_MODEL=deepseek-flash CODER_MODEL=deepseek-flash
 python tools/warm_env.py          # 先热身，避免字体缓存污染 stderr
 python -m jwave_flow "生成一个 64x64 的二维时域声学仿真：水中声速 1500 m/s，5 MHz 点源，仿真 20 微秒，最终输出压力场。"
 ```
@@ -257,8 +257,8 @@ python -m jwave_flow "生成一个 64x64 的二维时域声学仿真：水中声
 结果：**5 轮收敛**（第 1 轮报错 → 4 次自我纠错 → 第 5 轮通过），耗时约 185s，
 产出代码实跑得到 `(1001, 64, 64, 1)` 的有限压力场（`|p|max ≈ 5016`）。
 
-该 endpoint（`https://api.deepseek.com/v1`）可用模型为 `deepseek-flash` 与 `deepseek-v4-pro`；
-`deepseek-v4-flash` 会被服务端映射到 `deepseek-flash`，可直接用。
+该 endpoint（`https://api.deepseek.com/v1`）可用模型为 `deepseek-flash` 与 `deepseek-v4-pro`。
+⚠️ `deepseek-flash` **已弃用**（服务端只做重定向），本项目默认模型已改为 `deepseek-flash`。
 
 > ⚠️ 这次试运行也暴露了一个**本质限制**：「成功」的判定是 *stderr 为空*（与原 Dify 一致），
 > **只保证能跑不报错，不保证物理正确**。当次产出的代码里就有两处不报错但语义不对的写法
@@ -316,7 +316,7 @@ python -m jwave_flow --check-api
 
 ```
 探测 https://api.deepseek.com/v1
-  模型: deepseek-v4-flash
+  模型: deepseek-flash
   API Key: 已配置
 ❌ 连通性测试失败（0.57s）
   OpenAIConnectionError: Connection error.
