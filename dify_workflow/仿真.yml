@@ -1,0 +1,960 @@
+app:
+  description: ''
+  icon: 🤖
+  icon_background: '#FFEAD5'
+  icon_type: emoji
+  mode: workflow
+  name: 仿真
+  use_icon_as_answer_icon: false
+dependencies:
+- current_identifier: null
+  type: marketplace
+  value:
+    marketplace_plugin_unique_identifier: langgenius/deepseek:0.0.19@5b68617c637b62d31e7f33a9f5677b76e88f81868fb04a728e208588564b72ea
+    version: null
+- current_identifier: null
+  type: marketplace
+  value:
+    marketplace_plugin_unique_identifier: langgenius/tongyi:0.2.4@72bdf0d70a10b1b9f64746ccd1bd792397598f4536872b310e77532af02ad6a6
+    version: null
+kind: app
+version: 0.6.0
+workflow:
+  conversation_variables: []
+  environment_variables: []
+  features:
+    file_upload:
+      allowed_file_extensions:
+      - .JPG
+      - .JPEG
+      - .PNG
+      - .GIF
+      - .WEBP
+      - .SVG
+      allowed_file_types:
+      - image
+      allowed_file_upload_methods:
+      - local_file
+      - remote_url
+      enabled: false
+      fileUploadConfig:
+        attachment_image_file_size_limit: 2
+        audio_file_size_limit: 50
+        batch_count_limit: 5
+        file_size_limit: 15
+        file_upload_limit: 50
+        image_file_batch_limit: 10
+        image_file_size_limit: 10
+        single_chunk_attachment_limit: 10
+        video_file_size_limit: 100
+        workflow_file_upload_limit: 10
+      image:
+        enabled: false
+        number_limits: 3
+        transfer_methods:
+        - local_file
+        - remote_url
+      number_limits: 3
+    opening_statement: ''
+    retriever_resource:
+      enabled: true
+    sensitive_word_avoidance:
+      enabled: false
+    speech_to_text:
+      enabled: false
+    suggested_questions: []
+    suggested_questions_after_answer:
+      enabled: false
+    text_to_speech:
+      enabled: false
+      language: ''
+      voice: ''
+  graph:
+    edges:
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: start
+        targetType: llm
+      id: 1783990934733-source-1783990970058-target
+      source: '1783990934733'
+      sourceHandle: source
+      target: '1783990970058'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: llm
+        targetType: knowledge-retrieval
+      id: 1783990970058-source-1783990977543-target
+      source: '1783990970058'
+      sourceHandle: source
+      target: '1783990977543'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: knowledge-retrieval
+        targetType: template-transform
+      id: 1783990977543-source-1783990989034-target
+      source: '1783990977543'
+      sourceHandle: source
+      target: '1783990989034'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: llm
+        targetType: llm
+      id: 1783990970058-source-1783991048409-target
+      selected: false
+      source: '1783990970058'
+      sourceHandle: source
+      target: '1783991048409'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: template-transform
+        targetType: llm
+      id: 1783990989034-source-1783991048409-target
+      source: '1783990989034'
+      sourceHandle: source
+      target: '1783991048409'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: llm
+        targetType: llm
+      id: 1783991048409-source-1783991079665-target
+      source: '1783991048409'
+      sourceHandle: source
+      target: '1783991079665'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: llm
+        targetType: loop
+      id: 1783991079665-source-1783994256713-target
+      source: '1783991079665'
+      sourceHandle: source
+      target: '1783994256713'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: true
+        loop_id: '1783994256713'
+        sourceType: loop-start
+        targetType: tool
+      id: 1783994256713start-source-1783994373881-target
+      selected: false
+      source: 1783994256713start
+      sourceHandle: source
+      target: '1783994373881'
+      targetHandle: target
+      type: custom
+      zIndex: 1002
+    - data:
+        isInIteration: false
+        isInLoop: true
+        loop_id: '1783994256713'
+        sourceType: tool
+        targetType: code
+      id: 1783994373881-source-1783994422790-target
+      source: '1783994373881'
+      sourceHandle: source
+      target: '1783994422790'
+      targetHandle: target
+      type: custom
+      zIndex: 1002
+    - data:
+        isInLoop: false
+        sourceType: loop
+        targetType: end
+      id: 1783994256713-source-1783992518452-target
+      source: '1783994256713'
+      sourceHandle: source
+      target: '1783992518452'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: true
+        loop_id: '1783994256713'
+        sourceType: llm
+        targetType: assigner
+      id: 1784023398114-source-1784024297685-target
+      source: '1784023398114'
+      sourceHandle: source
+      target: '1784024297685'
+      targetHandle: target
+      type: custom
+      zIndex: 1002
+    - data:
+        isInIteration: false
+        isInLoop: true
+        loop_id: '1783994256713'
+        sourceType: code
+        targetType: if-else
+      id: 1783994422790-source-1784110105080-target
+      source: '1783994422790'
+      sourceHandle: source
+      target: '1784110105080'
+      targetHandle: target
+      type: custom
+      zIndex: 1002
+    - data:
+        isInIteration: false
+        isInLoop: true
+        loop_id: '1783994256713'
+        sourceType: if-else
+        targetType: loop-end
+      id: 1784110105080-true-1784110125544-target
+      source: '1784110105080'
+      sourceHandle: 'true'
+      target: '1784110125544'
+      targetHandle: target
+      type: custom
+      zIndex: 1002
+    - data:
+        isInIteration: false
+        isInLoop: true
+        loop_id: '1783994256713'
+        sourceType: if-else
+        targetType: llm
+      id: 1784110105080-false-1784023398114-target
+      source: '1784110105080'
+      sourceHandle: 'false'
+      target: '1784023398114'
+      targetHandle: target
+      type: custom
+      zIndex: 1002
+    nodes:
+    - data:
+        selected: false
+        title: 用户输入
+        type: start
+        variables:
+        - default: ''
+          hint: ''
+          label: query
+          options: []
+          placeholder: ''
+          required: true
+          type: text-input
+          variable: query
+      height: 108
+      id: '1783990934733'
+      position:
+        x: 58.46997602878599
+        y: 261
+      positionAbsolute:
+        x: 58.46997602878599
+        y: 261
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        context:
+          enabled: true
+          variable_selector:
+          - '1783990934733'
+          - query
+        model:
+          completion_params:
+            temperature: 0.7
+          mode: chat
+          name: deepseek-v4-pro
+          provider: langgenius/deepseek/deepseek
+        prompt_template:
+        - id: 15d9e831-d7da-410d-a2dd-c45dd75d796c
+          role: system
+          text: ''
+        - id: 6527c4e3-d31e-4fb2-ae19-6979c1a78730
+          role: user
+          text: '
+
+                你是一个声学仿真需求分析师。你的任务是将用户的自然语言输入整理成结构化的仿真需求描述。
+
+                阅读用户输入：{{#1783990934733.query#}}，提取并整理以下信息：
+
+                1. 仿真类型？
+
+                2. 涉及介质？
+
+                3. 声源类型与频率？
+
+                4. 有无障碍物？
+
+                5. 仿真区域？
+
+                6. 期望输出？
+
+                   注意：如果用户没提，请根据常识进行合理猜测，输出一段通顺的需求描述。
+
+             '
+        selected: false
+        title: LLM
+        type: llm
+        vision:
+          enabled: false
+      height: 87
+      id: '1783990970058'
+      position:
+        x: 382
+        y: 282
+      positionAbsolute:
+        x: 382
+        y: 282
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+    - data:
+        dataset_ids:
+        - iquv+foXnewXO3Z3wiAdk7n6TdmSQaCvNn/igkzX0zJYf5kvDSx0Ikks5j0fzIim
+        multiple_retrieval_config:
+          reranking_enable: true
+          reranking_mode: reranking_model
+          reranking_model:
+            model: qwen3-rerank
+            provider: langgenius/tongyi/tongyi
+          top_k: 4
+        query_attachment_selector: []
+        query_variable_selector:
+        - '1783990934733'
+        - query
+        retrieval_mode: multiple
+        selected: false
+        title: 知识检索
+        type: knowledge-retrieval
+      height: 89
+      id: '1783990977543'
+      position:
+        x: 609
+        y: 552
+      positionAbsolute:
+        x: 609
+        y: 552
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+    - data:
+        selected: false
+        template: "{% for item in arg1 %}\r\n{{ item.content }}\r\n{% endfor %}\r\n"
+        title: 模板转换
+        type: template-transform
+        variables:
+        - value_selector:
+          - '1783990977543'
+          - result
+          value_type: array[object]
+          variable: arg1
+      height: 51
+      id: '1783990989034'
+      position:
+        x: 910
+        y: 552
+      positionAbsolute:
+        x: 910
+        y: 552
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+    - data:
+        context:
+          enabled: true
+          variable_selector:
+          - '1783990989034'
+          - output
+        model:
+          completion_params:
+            temperature: 0.7
+          mode: chat
+          name: deepseek-v4-pro
+          provider: langgenius/deepseek/deepseek
+        prompt_template:
+        - id: 34a28900-fed5-4647-a9ac-8f3e72ac49c7
+          role: system
+          text: ''
+        - id: 2207227c-adc1-4894-ba3e-34c701909807
+          role: user
+          text: '你是一个 jwave 声学仿真参数提取器。根据用户需求和知识库内容，提取 JSON 参数。
+
+             
+
+            用户需求：{{#1783990934733.query#}}
+
+            知识库参考：{{#1783990989034.output#}}
+
+             
+
+            请严格按照结构化输出中定义的 JSON Schema 输出，只输出 JSON，不要有其他解释。'
+        selected: false
+        title: 参数提取
+        type: llm
+        vision:
+          enabled: false
+      height: 87
+      id: '1783991048409'
+      position:
+        x: 1167.4588864619998
+        y: 282
+      positionAbsolute:
+        x: 1167.4588864619998
+        y: 282
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        model:
+          completion_params:
+            temperature: 0.7
+          mode: chat
+          name: deepseek-coder
+          provider: langgenius/deepseek/deepseek
+        prompt_template:
+        - id: 961f94cd-f0ed-4ca0-ab49-7d797d67f6a6
+          role: system
+          text: ''
+        - id: 1562435c-7ca5-40fb-8e7d-fa8b2c5496e6
+          role: user
+          text: '你是 jwave Python 代码生成器。
+
+             
+
+            任务：
+
+             
+
+            根据参考代码生成最终代码。
+
+             
+
+            规则：
+
+             
+
+            1. 必须保持参考代码结构不变。
+
+            2. 只允许修改：
+
+               - sound_speed
+
+               - density
+
+               - source_frequency
+
+               - t_end
+
+               - positions
+
+             
+
+            3. 不允许新增函数。
+
+            4. 不允许删除函数。
+
+            5. 不允许修改变量名称。
+
+            6. 不允许修改参数顺序。
+
+            7. 不允许修改 API 调用方式。
+
+             
+
+             
+
+            用户需求：
+
+             
+
+            {{#1783990934733.query#}}
+
+
+            代码参考：
+
+            {{#1783991048409.text#}}
+
+             
+
+            输出要求：
+
+             
+
+            仅输出完整 Python 代码。
+
+             
+
+            禁止输出：
+
+             
+
+            <think>
+
+            </think>
+
+            ENDTHINKFLAG
+
+            Markdown
+
+            解释
+
+            分析
+
+            自然语言
+
+             
+
+            输出内容必须从代码第一行开始，到代码最后一行结束。'
+        selected: false
+        structured_output:
+          schema:
+            additionalProperties: false
+            properties:
+              code:
+                description: 将代码注入到这里，解释器会自动运行
+                type: string
+            required: []
+            type: object
+        structured_output_enabled: true
+        title: 代码生成
+        type: llm
+        vision:
+          enabled: false
+      height: 87
+      id: '1783991079665'
+      position:
+        x: 1550.4773256211458
+        y: 282
+      positionAbsolute:
+        x: 1550.4773256211458
+        y: 282
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+    - data:
+        outputs:
+        - value_selector:
+          - '1783994256713'
+          - code_final
+          value_type: string
+          variable: text
+        selected: false
+        title: 输出
+        type: end
+      height: 87
+      id: '1783992518452'
+      position:
+        x: 3825.4020280085774
+        y: 157.900615026916
+      positionAbsolute:
+        x: 3825.4020280085774
+        y: 157.900615026916
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+    - data:
+        break_conditions: []
+        error_handle_mode: terminated
+        height: 501
+        logical_operator: and
+        loop_count: 10
+        loop_variables:
+        - id: c84e0dcc-ae90-4bc9-a98f-2f58f3eba5bd
+          label: code_final
+          value:
+          - '1783991079665'
+          - text
+          value_type: variable
+          var_type: string
+        selected: false
+        start_node_id: 1783994256713start
+        title: 循环
+        type: loop
+        width: 1623
+      height: 501
+      id: '1783994256713'
+      position:
+        x: 1832.083010128054
+        y: 157.900615026916
+      positionAbsolute:
+        x: 1832.083010128054
+        y: 157.900615026916
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 1623
+      zIndex: 1
+    - data:
+        desc: ''
+        isInLoop: true
+        selected: false
+        title: ''
+        type: loop-start
+      draggable: false
+      height: 48
+      id: 1783994256713start
+      parentId: '1783994256713'
+      position:
+        x: 24
+        y: 68
+      positionAbsolute:
+        x: 1856.083010128054
+        y: 225.900615026916
+      selectable: false
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom-loop-start
+      width: 44
+      zIndex: 1002
+    - data:
+        isInIteration: false
+        isInLoop: true
+        is_team_authorization: true
+        loop_id: '1783994256713'
+        paramSchemas:
+        - auto_generate: null
+          default: null
+          form: llm
+          human_description:
+            en_US: Python source to execute.
+            ja_JP: Python source to execute.
+            pt_BR: Python source to execute.
+            zh_Hans: Python source to execute.
+          label:
+            en_US: code
+            ja_JP: code
+            pt_BR: code
+            zh_Hans: code
+          llm_description: Python source to execute.
+          max: null
+          min: null
+          name: code
+          options: []
+          placeholder: null
+          precision: null
+          required: true
+          scope: null
+          template: null
+          type: string
+        params:
+          code: ''
+        plugin_id: ''
+        plugin_unique_identifier: ''
+        provider_icon:
+          background: '#FFEAD5'
+          content: grinning
+        provider_id: py
+        provider_name: python运行mcp
+        provider_show_name: python运行mcp
+        provider_type: mcp
+        selected: false
+        title: run_python_code
+        tool_configurations: {}
+        tool_description: 'Execute Python code in the persistent Jupyter kernel with
+          enhanced timeout handling.
+
+
+          The kernel session is shared across calls, enabling stateful workflows.
+
+          Rich display outputs (image/png, image/svg+xml, application/json) are saved
+
+          under `outputs/` and their relative paths are returned.
+
+
+          Features progressive timeout and retry logic for reliable execution.'
+        tool_label: run_python_code
+        tool_name: run_python_code
+        tool_node_version: '2'
+        tool_parameters:
+          code:
+            type: mixed
+            value: '{{#1783994256713.code_final#}}'
+        type: tool
+      height: 83
+      id: '1783994373881'
+      parentId: '1783994256713'
+      position:
+        x: 191.0801913235473
+        y: 120.56803060745861
+      positionAbsolute:
+        x: 2023.1632014516013
+        y: 278.46864563437464
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 1002
+    - data:
+        code: "def main(json):\n    first_item = json[0]\n        \n    return {\n\
+          \        \"stdout\": first_item.get(\"stdout\", \"\"),\n        \"stderr\"\
+          : simple_strip_ansi(first_item.get(\"stderr\", \"\")),\n        \"results\"\
+          : first_item.get(\"results\", []),\n        \"outputs\": first_item.get(\"\
+          outputs\", []),\n        \"new_files\": first_item.get(\"new_files\", []),\n\
+          \        \"execution_time\": first_item.get(\"execution_time\", 0)\n   \
+          \ }\n\ndef simple_strip_ansi(text):\n    \"\"\"简单的 ANSI 移除（处理常见情况）\"\"\"\
+          \n    import re\n    # 移除 CSI 序列（最常见的）\n    text = re.sub(r'\\x1b\\[[0-9;]*[mK]',\
+          \ '', text)\n    # 移除其他控制字符\n    text = re.sub(r'\\x1b[\\[\\]\\(\\)][0-9;]*[A-Za-z]',\
+          \ '', text)\n    return text"
+        code_language: python3
+        isInIteration: false
+        isInLoop: true
+        loop_id: '1783994256713'
+        outputs:
+          execution_time:
+            children: null
+            type: number
+          new_files:
+            children: null
+            type: array[string]
+          outputs:
+            children: null
+            type: array[number]
+          results:
+            children: null
+            type: array[string]
+          stderr:
+            children: null
+            type: string
+          stdout:
+            children: null
+            type: string
+        selected: false
+        title: 代码执行 2
+        type: code
+        variables:
+        - value_selector:
+          - '1783994373881'
+          - json
+          value_type: array[object]
+          variable: json
+      height: 51
+      id: '1783994422790'
+      parentId: '1783994256713'
+      position:
+        x: 486.4090273555903
+        y: 120.00000000000003
+      positionAbsolute:
+        x: 2318.4920374836443
+        y: 277.90061502691606
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 1002
+    - data:
+        context:
+          enabled: true
+          variable_selector:
+          - '1783990977543'
+          - result
+        isInIteration: false
+        isInLoop: true
+        loop_id: '1783994256713'
+        model:
+          completion_params:
+            temperature: 0.7
+          mode: chat
+          name: deepseek-coder
+          provider: langgenius/deepseek/deepseek
+        prompt_template:
+        - id: d84fb932-3b2c-424e-b4ee-89e79e6a8bc8
+          role: system
+          text: ''
+        - id: a39a4493-fa25-4718-99c7-fb0335622f00
+          role: user
+          text: '你是一个代码改正器。
+
+
+            你会收到三段输入：
+
+            - 需要改正的代码：{{#1783994256713.code_final#}}
+
+            - 可用辅助信息：{{#context#}}
+
+            - 代码的报错：{{#1783994422790.stderr#}}
+
+
+            你的唯一任务是：修复代码错误，并返回修复后的完整代码。
+
+
+            # 最重要规则：
+
+            **输出必须是代码格式，要求能完成运行**
+
+
+            # 严格规则：
+
+            1. 只输出最终修复后的完整代码。
+
+            2. 不输出任何解释、分析、注释说明、步骤、标题、前后缀文本。
+
+            3. 不使用 Markdown 代码块包裹（不要 ```）。
+
+            4. 保持原有功能不变，仅做修复错误所必需的最小改动。
+
+            5. 必须结合“可用辅助信息”进行修复，不得臆造不存在的库、函数、参数。
+
+            6. 如果有多种修复方式，选择最稳健且兼容原逻辑的一种。
+
+            7. 输出必须是可直接替换原代码的版本。'
+        selected: false
+        structured_output:
+          schema:
+            additionalProperties: false
+            properties:
+              code_2:
+                description: 将代码注入这里
+                type: string
+            required: []
+            type: object
+        structured_output_enabled: true
+        title: 代码纠错
+        type: llm
+        vision:
+          enabled: false
+      height: 87
+      id: '1784023398114'
+      parentId: '1783994256713'
+      position:
+        x: 1039.041699110815
+        y: 206.50552609342904
+      positionAbsolute:
+        x: 2871.124709238869
+        y: 364.40614112034507
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 1002
+    - data:
+        isInIteration: false
+        isInLoop: true
+        items:
+        - input_type: variable
+          operation: over-write
+          value:
+          - '1784023398114'
+          - text
+          variable_selector:
+          - '1783994256713'
+          - code_final
+        loop_id: '1783994256713'
+        selected: false
+        title: 变量赋值
+        type: assigner
+        version: '2'
+      height: 83
+      id: '1784024297685'
+      parentId: '1783994256713'
+      position:
+        x: 1345
+        y: 218.44660675955348
+      positionAbsolute:
+        x: 3177.083010128054
+        y: 376.3472217864695
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 1002
+    - data:
+        cases:
+        - case_id: 'true'
+          conditions:
+          - comparison_operator: empty
+            id: 2ffffb11-5479-443f-8f11-0ead0230cc9c
+            value: ''
+            varType: string
+            variable_selector:
+            - '1783994422790'
+            - stderr
+          id: 'true'
+          logical_operator: and
+        isInIteration: false
+        isInLoop: true
+        loop_id: '1783994256713'
+        selected: false
+        title: 条件分支
+        type: if-else
+      height: 123
+      id: '1784110105080'
+      parentId: '1783994256713'
+      position:
+        x: 744.4443222154987
+        y: 100.00915989749538
+      positionAbsolute:
+        x: 2576.5273323435526
+        y: 257.9097749244114
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 1002
+    - data:
+        isInIteration: false
+        isInLoop: true
+        loop_id: '1783994256713'
+        selected: false
+        title: 退出循环
+        type: loop-end
+      height: 53
+      id: '1784110125544'
+      parentId: '1783994256713'
+      position:
+        x: 1074.148786214183
+        y: 71
+      positionAbsolute:
+        x: 2906.231796342237
+        y: 228.900615026916
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom-simple
+      width: 244
+      zIndex: 1002
+    viewport:
+      x: -893.5062638719999
+      y: 164.04212412804395
+      zoom: 0.5743491774985179
+  rag_pipeline_variables: []
