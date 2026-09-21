@@ -20,11 +20,34 @@ except Exception:  # pragma: no cover
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_KB = PROJECT_ROOT / "kb" / "jwave_kb_organized.md"
+DEEPSEEK_DEFAULT_BASE_URL = "https://api.deepseek.com/v1"
 
 
 def _env(name: str, default: str | None = None) -> str | None:
     value = os.environ.get(name)
     return value if value not in (None, "") else default
+
+
+def resolve_llm_endpoint() -> tuple[str | None, str | None]:
+    """Return ``(api_key, base_url)`` keeping the **pair** consistent.
+
+    Regression guard: previously only ``DEEPSEEK_API_KEY`` was honoured as a
+    key *fallback*, while ``base_url`` stayed ``None`` -> the request went to
+    ``api.openai.com`` carrying a DeepSeek key and died with
+    ``Connection reset by peer``.  The endpoint now follows whichever key was
+    actually picked.
+    """
+    openai_key = _env("OPENAI_API_KEY")
+    deepseek_key = _env("DEEPSEEK_API_KEY")
+    explicit_base = _env("OPENAI_BASE_URL") or _env("DEEPSEEK_BASE_URL")
+
+    key = openai_key or deepseek_key
+    base = explicit_base
+    if base is None and key is not None:
+        # 用的是 DeepSeek 的 key（没设 OPENAI_API_KEY，或两者其实是同一个 key）
+        if openai_key is None or key == deepseek_key:
+            base = DEEPSEEK_DEFAULT_BASE_URL
+    return key, base
 
 
 @dataclass
@@ -96,9 +119,10 @@ class Settings:
     def from_env(cls, **overrides) -> "Settings":
         load_dotenv(PROJECT_ROOT / ".env")
         load_dotenv()  # also honour a .env in the current directory
+        api_key, base_url = resolve_llm_endpoint()
         kwargs: dict = dict(
-            openai_api_key=_env("OPENAI_API_KEY") or _env("DEEPSEEK_API_KEY"),
-            openai_base_url=_env("OPENAI_BASE_URL") or _env("DEEPSEEK_BASE_URL"),
+            openai_api_key=api_key,
+            openai_base_url=base_url,
             analyst_model=_env("ANALYST_MODEL", "deepseek-v4-flash"),
             coder_model=_env("CODER_MODEL", "deepseek-v4-flash"),
             temperature=float(_env("LLM_TEMPERATURE", "0.7")),

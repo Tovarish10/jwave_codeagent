@@ -6,7 +6,13 @@ import json
 import sys
 from pathlib import Path
 
-from .config import Settings
+from .config import DEEPSEEK_DEFAULT_BASE_URL, Settings, _env
+
+try:  # openai 是 langchain-openai 的依赖，理论上一定在
+    from openai import APIError as _APIError
+except Exception:  # pragma: no cover
+    class _APIError(Exception):  # type: ignore
+        pass
 from .graph import SimulationWorkflow
 
 
@@ -80,6 +86,20 @@ def main(argv: list[str] | None = None) -> int:
     except (RuntimeError, ValueError, FileNotFoundError) as exc:
         print(f"错误：{exc}", file=sys.stderr)
         return 2
+    except _APIError as exc:
+        base = settings.openai_base_url or "https://api.openai.com/v1（默认）"
+        print(f"错误：调用 LLM 服务失败 —— {type(exc).__name__}: {exc}", file=sys.stderr)
+        print(f"  base_url : {base}", file=sys.stderr)
+        print(f"  key 来源 : {'OPENAI_API_KEY' if _env('OPENAI_API_KEY') else 'DEEPSEEK_API_KEY'}", file=sys.stderr)
+        print(f"  模型     : {settings.analyst_model}", file=sys.stderr)
+        print("  排查建议：", file=sys.stderr)
+        if "deepseek" not in base.lower() and _env("DEEPSEEK_API_KEY") and not _env("OPENAI_API_KEY"):
+            print(f"   1) 你用的是 DeepSeek 的 key，base_url 应为 {DEEPSEEK_DEFAULT_BASE_URL}", file=sys.stderr)
+            print("      （只设 DEEPSEEK_API_KEY 时会自动推断；也可显式 export OPENAI_BASE_URL=...）", file=sys.stderr)
+        else:
+            print("   1) 确认 base_url 与 key 属于同一服务商", file=sys.stderr)
+        print("   2) 检查网络 / 代理是否可达该地址（curl -v <base_url>/models）", file=sys.stderr)
+        return 3
 
     if args.json:
         print(json.dumps({k: v for k, v in result.items() if k != "kb_docs"}, ensure_ascii=False, indent=2, default=str))
@@ -105,10 +125,16 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  ❌ 静态检查仍有 {len(result['static_issues'])} 处问题", file=sys.stderr)
         for line in result.get("semantic_issues") or []:
             print(f"  ❌ 语义门: {line}", file=sys.stderr)
-        print(
-            "  ✅ 语义校验通过" if result.get("verified") else "  ⚠️ 未通过语义校验，请人工确认",
-            file=sys.stderr,
-        )
+        if result.get("verified"):
+            print("  ✅ 语义校验通过", file=sys.stderr)
+        else:
+            print("  ⚠️ 未通过语义校验，请人工确认", file=sys.stderr)
+            # 把真正的失败原因也打出来（此前会被语义门的文案覆盖掉）
+            raw = (result.get("last_error") or result.get("stderr") or "").strip()
+            if raw:
+                print("  ---- 最近一次执行的错误输出 ----", file=sys.stderr)
+                for line in raw.splitlines()[-15:]:
+                    print(f"  | {line}", file=sys.stderr)
 
     if args.out:
         Path(args.out).write_text(result.get("text", ""), encoding="utf-8")

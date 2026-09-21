@@ -12,6 +12,8 @@
   R6  time_axis.t / time_axis.time       应为 time_axis.to_array()
   R7  FourierSeries.from_array(...)      直接 FourierSeries(data, domain)
   R8  jw.show_field / jw.display_complex_field 这两个在 jwave.utils 下
+  R9  Sources 的 signals 传成 list           必须是 2D jnp 数组（list -> TypeError）
+  R10 Sources 的 positions 传成 list        必须是 (int 数组, int 数组) 元组
 """
 from __future__ import annotations
 
@@ -138,16 +140,49 @@ def check_code(code: str) -> StaticReport:
                         )
                     )
 
-            # ---- R4 Sources 关键字参数 ----
-            if short == "Sources" and node.keywords:
-                bad = ", ".join(k.arg or "**" for k in node.keywords)
-                issues.append(
-                    StaticIssue(
-                        "R4_SOURCES_KEYWORDS", node.lineno,
-                        f"Sources 需要 4 个位置参数，不能用关键字：{bad}",
-                        "Sources(positions, signals, dt, domain)",
+            if short == "Sources":
+                # ---- R4 关键字参数 ----
+                if node.keywords:
+                    bad = ", ".join(k.arg or "**" for k in node.keywords)
+                    issues.append(
+                        StaticIssue(
+                            "R4_SOURCES_KEYWORDS", node.lineno,
+                            f"Sources 需要 4 个位置参数，不能用关键字：{bad}",
+                            "Sources(positions, signals, dt, domain)",
+                        )
                     )
-                )
+
+                def _positional(index, keyword):
+                    if len(node.args) > index:
+                        return node.args[index]
+                    for kw in node.keywords:
+                        if kw.arg == keyword:
+                            return kw.value
+                    return None
+
+                # ---- R9 signals 不能是 list 字面量 ----
+                sig = _positional(1, "signals")
+                if isinstance(sig, ast.List):
+                    issues.append(
+                        StaticIssue(
+                            "R9_SIGNALS_LIST", node.lineno,
+                            "Sources 的 signals 传成了 list，jwave 要求的是 2D jnp 数组"
+                            "（list 会在 sources.on_grid() 里抛 TypeError）",
+                            "signals = jnp.expand_dims(signal_1d, 0)",
+                        )
+                    )
+
+                # ---- R10 positions 不能是 list（应为元组）----
+                pos = _positional(0, "positions")
+                if isinstance(pos, ast.List):
+                    issues.append(
+                        StaticIssue(
+                            "R10_POSITIONS_LIST", node.lineno,
+                            "Sources 的 positions 传成了 list，jwave 要求的是"
+                            "『1D 整数数组』的元组（如 (jnp.array([64]), jnp.array([64]))）",
+                            "positions = (jnp.array([x]), jnp.array([y]))",
+                        )
+                    )
 
             # ---- R7 FourierSeries.from_array ----
             dotted = _dotted(node.func) or ""
@@ -197,7 +232,7 @@ def check_code(code: str) -> StaticReport:
                 )
             )
 
-    report.rules_run = 8
+    report.rules_run = 10
     # 去重并按行排序，输出更可读
     seen, unique = set(), []
     for issue in sorted(issues, key=lambda i: (i.line, i.rule)):
