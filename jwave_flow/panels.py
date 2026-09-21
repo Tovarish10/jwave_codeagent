@@ -424,6 +424,41 @@ def code_panel(code: str, *, title: str = "最终代码", max_lines: int = 400) 
     return Panel(body, title=f"[bold]{title}[/bold]", border_style="green", box=box.ROUNDED, subtitle=subtitle, subtitle_align="right")
 
 
+def _hints_block(hints: Sequence[str], summary: str) -> Group:
+    head = Text(summary, style="bold red", overflow="fold")
+    body: list[RenderableType] = [head, Text()]
+    for hint in hints:
+        style = "yellow" if hint.startswith("这是") else "white"
+        body.append(Text(hint, style=style, overflow="fold"))
+    return Group(*body)
+
+
+def error_panel(title: str, exc: BaseException) -> Panel:
+    """异常 -> 可直接打印的诊断面板（文案与 CLI 共用 errors 模块）。"""
+    from .errors import diagnose_error, error_summary
+
+    return Panel(
+        _hints_block(list(diagnose_error(exc)), error_summary(exc)),
+        title=f"[bold]{title}[/bold]",
+        border_style="red",
+        box=box.ROUNDED,
+    )
+
+
+def error_state_panel(state: dict[str, Any], *, title: str = "运行中断") -> Panel:
+    """Runner 把失败写进 state（error / error_hints），这里负责渲染。"""
+    hints = _as_list(state.get("error_hints"))
+    summary = str(state.get("error") or "未知错误")
+    if not hints:
+        hints = ["可在「运行配置」里按 t 做一次 API 连通性测试，或直接用 --check-api 定位。"]
+    return Panel(
+        _hints_block(hints, summary),
+        title=f"[bold]{title}[/bold]",
+        border_style="red",
+        box=box.ROUNDED,
+    )
+
+
 def requirement_panel(result: dict[str, Any]) -> Panel:
     text = _clip(result.get("requirement"), 2000) or "(无)"
     try:
@@ -588,6 +623,13 @@ def history_detail(record: dict[str, Any]) -> RenderableType:
         table.add_row(label, str(value))
     gates = record.get("gates") or {}
     blocks: list[RenderableType] = [Panel(table, title="[bold]历史详情[/bold]", border_style="blue", box=box.ROUNDED)]
+    if record.get("error"):
+        blocks.append(
+            error_state_panel(
+                {"error": record["error"], "error_hints": record.get("error_hints")},
+                title="错误诊断",
+            )
+        )
     for title, key, style in (
         ("方案一 参数预检问题", "param_issues", "yellow"),
         ("方案一 参数告警", "param_warnings", "yellow"),

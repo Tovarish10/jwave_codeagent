@@ -81,6 +81,8 @@ def make_record(
         "code": _clip(result.get("text") or result.get("code_final") or "", MAX_CODE_CHARS),
         "stdout": _clip(result.get("stdout"), MAX_STREAM_CHARS),
         "stderr": _clip(result.get("stderr"), MAX_STREAM_CHARS),
+        "error": str(result.get("error") or ""),
+        "error_hints": _as_list(result.get("error_hints")),
         "new_files": _as_list(result.get("new_files")),
         "trace": _as_list(result.get("trace")),
         "gates": {
@@ -182,6 +184,7 @@ def describe(record: dict[str, Any]) -> Sequence[tuple[str, str]]:
         ("迭代", f"{record.get('iterations', 0)} 轮"),
         ("耗时", f"{float(record.get('elapsed') or 0):.1f}s"),
         ("运行", "成功 ✅" if record.get("success") else "失败 ❌"),
+        *([("错误", str(record["error"]))] if record.get("error") else []),
         ("方案一 参数预检", "通过 ✅" if gates.get("param_ok") else f"未通过（{len(gates.get('param_issues') or [])} 项）"),
         ("方案二 静态检查", "通过 ✅" if gates.get("static_ok") else f"{len(gates.get('static_issues') or [])} 处问题"),
         ("方案三 语义门", "通过 ✅" if gates.get("semantic_ok") else f"{len(gates.get('semantic_issues') or [])} 项未通过"),

@@ -275,7 +275,8 @@ def test_runner_streams_and_merges_state():
     assert "⑧ 输出" in out
 
 
-def test_runner_propagates_errors_and_close():
+def test_runner_captures_node_failure_instead_of_raising():
+    """节点里的异常（比如网络断了）不该炸掉界面，而要落进 state 供上层展示。"""
     console = _console()
 
     class Boom(FakeWorkflow):
@@ -283,8 +284,34 @@ def test_runner_propagates_errors_and_close():
             raise RuntimeError("no api key")
 
     runner = Runner(_settings(), console, workflow_factory=lambda s: Boom([]))
-    with pytest.raises(RuntimeError):
-        runner.run("x")
+    state, elapsed = runner.run("x")
+
+    assert state["success"] is False
+    assert state["verified"] is False
+    assert "RuntimeError" in state["error"]
+    assert state["error_type"] == "RuntimeError"
+    assert state["error_hints"]                       # 至少给一条排查建议
+    assert elapsed >= 0
+    # 流程图里能看到失败节点
+    assert "✖" in console.export_text()
+
+
+def test_runner_reports_network_error_hints():
+    """连接类异常要给出「检查网络/代理」这类建议。"""
+    console = _console()
+
+    class OpenAIConnectionError(Exception):
+        pass
+
+    class Boom(FakeWorkflow):
+        def stream(self, query):
+            raise OpenAIConnectionError("Connection error.")
+
+    runner = Runner(_settings(), console, workflow_factory=lambda s: Boom([]))
+    state, _ = runner.run("x")
+    hints = "\n".join(state["error_hints"])
+    assert "网络层" in hints
+    assert "代理" in hints or "OPENAI_BASE_URL" in hints
 
 
 # --------------------------------------------------------------------------- #
@@ -449,3 +476,174 @@ def test_config_self_check_panel_runs(tmp_path):
     out = console.export_text()
     assert "配置自检" in out
     assert "API Key" in out and "知识库" in out
+
+
+# --------------------------------------------------------------------------- #
+# 错误诊断（这次踩的坑：连接被重置时 TUI 直接把 traceback 甩给用户）
+# --------------------------------------------------------------------------- #
+def test_diagnose_network_error_mentions_proxy_and_endpoint():
+    from jwave_flow import errors
+
+    class OpenAIConnectionError(Exception):
+        pass
+
+    exc = OpenAIConnectionError("Connection error.")
+    assert errors.is_network_error(exc) is True
+    text = errors.format_error_text(exc)
+    assert "网络层" in text
+    assert "OPENAI_BASE_URL" in text
+    assert "代理" in text
+
+
+def test_diagnose_follows_exception_chain():
+    """真实链路是 OpenAIConnectionError <- httpx.ConnectError <- [Errno 104]。"""
+    from jwave_flow import errors
+
+    class OpenAIConnectionError(Exception):
+        pass
+
+    root = ConnectionResetError(104, "Connection reset by peer")
+    mid = RuntimeError("Connection error.")
+    mid.__cause__ = root
+    top = OpenAIConnectionError("Connection error.")
+    top.__cause__ = mid
+
+    assert errors.is_network_error(top) is True
+    assert "网络层" in errors.format_error_text(top)
+
+
+def test_non_network_error_gets_generic_hint():
+    from jwave_flow import errors
+
+    hints = errors.diagnose_error(KeyError("weird"))
+    assert hints and "连通性测试" in hints[0]
+
+
+def test_error_panels_render():
+    console = _console()
+
+    class OpenAIConnectionError(Exception):
+        pass
+
+    console.print(panels.error_panel("运行失败", OpenAIConnectionError("Connection error.")))
+    console.print(panels.error_state_panel({"error": "BOOM: x", "error_hints": ["检查网络"]}))
+    console.print(panels.error_state_panel({"error": "BOOM: x"}))     # 没有 hints 也要能画
+    out = console.export_text()
+    assert "运行失败" in out and "Connection error." in out
+    assert "检查网络" in out
+
+
+def test_app_shows_error_panel_and_returns_to_menu(tmp_path):
+    """端到端：节点报错 -> 面板 + 历史 + 回主菜单，而不是 traceback。"""
+    console = _console()
+
+    class OpenAIConnectionError(Exception):
+        pass
+
+    class Boom(FakeWorkflow):
+        def stream(self, query):
+            raise OpenAIConnectionError("Connection error.")
+
+    app = TuiApp(_settings(), console=console, workflow_factory=lambda s: Boom([]))
+    app.hist_file = tmp_path / "history.jsonl"
+    app.prompter = ScriptedPrompter(["1", "做个仿真", True, "q"])
+    assert app.run() == 0
+
+    out = console.export_text()
+    assert "运行中断" in out
+    assert "Connection error." in out
+    assert "网络层" in out
+    assert "Traceback" not in out                     # 关键：不再甩 traceback
+
+    records = load_records(tmp_path / "history.jsonl")
+    assert len(records) == 1
+    assert records[0]["success"] is False
+    assert "Connection error." in records[0]["error"]
+    assert records[0]["error_hints"]
+
+
+def test_app_shows_error_panel_when_runner_raises(monkeypatch):
+    """连 Runner 都炸了（例如构造 workflow 失败）也要有面板兜底。"""
+    console = _console()
+
+    class Construct(SimulationWorkflowStub):
+        def __init__(self, *a, **k):
+            raise RuntimeError("no api key configured")
+
+    app = TuiApp(_settings(), console=console, workflow_factory=Construct)
+    app.prompter = ScriptedPrompter(["1", "做个仿真", True, "q"])
+    app.run()
+    out = console.export_text()
+    assert "运行中断" in out or "运行失败" in out
+    assert "no api key configured" in out
+    assert "Traceback" not in out
+
+
+class SimulationWorkflowStub:
+    """只用来让 workflow_factory 抛构造期异常。"""
+
+
+def test_cli_reports_connection_error_without_traceback(monkeypatch, capsys):
+    """非交互模式遇到网络错误也要是「人话」，不是 traceback。"""
+    from jwave_flow import cli
+
+    class OpenAIConnectionError(Exception):
+        pass
+
+    class Boom:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def invoke(self, query, **kw):
+            raise OpenAIConnectionError("Connection error.")
+
+    monkeypatch.setattr(cli, "SimulationWorkflow", Boom)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-dummy")
+
+    assert cli.main(["做个仿真"]) == 2
+    err = capsys.readouterr().err
+    assert "运行失败" in err
+    assert "网络层" in err
+    assert "Traceback" not in err
+
+
+def test_cli_check_api_without_key(monkeypatch, capsys):
+    from jwave_flow import cli
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    assert cli._check_api({"openai_api_key": ""}) == 2
+    assert "未配置 API Key" in capsys.readouterr().err
+
+
+def test_cli_check_api_reports_probe_failure(monkeypatch, capsys):
+    from jwave_flow import cli, llm
+
+    class OpenAIConnectionError(Exception):
+        pass
+
+    monkeypatch.setattr(llm, "probe_api", lambda s, **k: (False, OpenAIConnectionError("Connection error."), 0.5))
+    rc = cli._check_api({"openai_api_key": "sk-dummy", "openai_base_url": "http://127.0.0.1:9/v1"})
+    err = capsys.readouterr().err
+    assert rc == 2
+    assert "连通性测试失败" in err and "网络层" in err
+
+
+def test_probe_api_returns_tuple_on_failure(monkeypatch):
+    """llm.probe_api 只负责返回 (ok, payload, 耗时)，不抛异常。"""
+    from jwave_flow import llm
+
+    class OpenAIConnectionError(Exception):
+        pass
+
+    monkeypatch.setattr(llm, "build_chat_model", lambda *a, **k: (_ for _ in ()).throw(OpenAIConnectionError("Connection error.")))
+    ok, payload, elapsed = llm.probe_api(_settings(), timeout=1.0)
+    assert ok is False
+    assert isinstance(payload, OpenAIConnectionError)
+    assert elapsed >= 0

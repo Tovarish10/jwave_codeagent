@@ -32,6 +32,11 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--out", type=Path, help="把最终代码写到该文件")
     p.add_argument("--json", action="store_true", help="以 JSON 打印完整最终状态")
     p.add_argument("--quiet", action="store_true", help="不打印过程日志")
+    p.add_argument(
+        "--check-api",
+        action="store_true",
+        help="只发一个最小请求验证 API/网络是否可达，然后退出",
+    )
     p.add_argument("--tui", action="store_true", help="强制使用交互式界面（可视化流水线）")
     p.add_argument("--no-tui", action="store_true", help="禁用交互式界面（无需求时直接报错）")
     return p
@@ -57,12 +62,39 @@ def _overrides_from_args(args) -> dict:
     return overrides
 
 
+def _check_api(overrides: dict) -> int:
+    """``--check-api``：把「网络/鉴权/模型名」问题单独暴露出来。"""
+    from .errors import format_error_text
+    from .llm import probe_api
+
+    settings = Settings.from_env(**overrides)
+    endpoint = settings.openai_base_url or "https://api.openai.com/v1"
+    print(
+        f"探测 {endpoint}\n  模型: {settings.analyst_model}\n"
+        f"  API Key: {'已配置' if settings.openai_api_key else '未配置 ⚠️'}",
+        file=sys.stderr,
+    )
+    if not settings.openai_api_key:
+        print("❌ 未配置 API Key（OPENAI_API_KEY / DEEPSEEK_API_KEY）", file=sys.stderr)
+        return 2
+
+    ok, payload, elapsed = probe_api(settings, timeout=20.0)
+    if ok:
+        print(f"✅ API 连通（{elapsed:.2f}s）\n  返回：{str(payload)[:200]}", file=sys.stderr)
+        return 0
+    print(f"❌ 连通性测试失败（{elapsed:.2f}s）\n  {format_error_text(payload)}", file=sys.stderr)
+    return 2
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
 
     query = args.query
     if args.query_file:
         query = Path(args.query_file).read_text(encoding="utf-8").strip()
+
+    if args.check_api:
+        return _check_api(_overrides_from_args(args))
 
     # 没有需求时（或显式 --tui）进入交互式界面；有 --json 说明是脚本场景，不自动进 TUI
     wants_tui = args.tui or (
@@ -106,6 +138,11 @@ def main(argv: list[str] | None = None) -> int:
         return 130
     except (RuntimeError, ValueError, FileNotFoundError) as exc:
         print(f"错误：{exc}", file=sys.stderr)
+        return 2
+    except Exception as exc:  # noqa: BLE001 - 网络/服务端异常也要给人话，而不是 traceback
+        from .errors import format_error_text
+
+        print(f"\n运行失败：\n  {format_error_text(exc)}", file=sys.stderr)
         return 2
 
     if args.json:

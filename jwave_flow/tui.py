@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Callable, Sequence
 
 from . import __version__
+from . import errors
 from .config import PROJECT_ROOT, Settings
 from .history import (
     append_record,
@@ -253,6 +254,14 @@ def next_node(node: str, state: dict[str, Any], max_iterations: int) -> str | No
     return None
 
 
+def running_step_index(steps: Sequence[Step]) -> int | None:
+    """最近被标记为 running 的节点（用于把异常归到具体节点上）。"""
+    for i in range(len(steps) - 1, -1, -1):
+        if steps[i].status == "running":
+            return i
+    return None
+
+
 def step_outcome(node: str, state: dict[str, Any]) -> tuple[str, str]:
     """(状态, 备注) —— 根据 state 增量决定节点是成功还是失败。"""
     if node == "analyze":
@@ -318,8 +327,18 @@ class Runner:
 
         return SimulationWorkflow(self.settings)
 
-    def _render(self, query: str, steps: list[Step], state: dict[str, Any], trace: list[str], elapsed: float):
-        return panels.live_view(query, self.settings, steps, state, trace, elapsed=elapsed)
+    def _render(
+        self,
+        query: str,
+        steps: list[Step],
+        state: dict[str, Any],
+        trace: list[str],
+        elapsed: float,
+        footer: str = "运行中…（Ctrl+C 可中断）",
+    ):
+        return panels.live_view(
+            query, self.settings, steps, state, trace, elapsed=elapsed, footer=footer
+        )
 
     # -- 对外 ---------------------------------------------------------- #
     def run(self, query: str) -> tuple[dict[str, Any], float]:
@@ -352,6 +371,7 @@ class Runner:
         steps[0].mark("running")
         last_event = time.time()
         interrupted = False
+        failure: BaseException | None = None
 
         live = Live(
             self._render(query, steps, state, trace, 0.0),
@@ -388,7 +408,16 @@ class Runner:
                                 steps[STEP_INDEX[nxt]].mark("running")
                         live.update(self._render(query, steps, state, trace, time.time() - started))
                     elif kind == "error":
-                        raise payload
+                        failure = payload
+                        # 把失败落到具体节点上，让最后一帧仍然可读
+                        idx = running_step_index(steps)
+                        if idx is not None:
+                            steps[idx].mark("fail", note=errors.error_summary(payload))
+                        live.update(self._render(
+                            query, steps, state, trace, time.time() - started,
+                            footer="✖ 节点执行失败，已停止本次流程（诊断见下方面板）",
+                        ))
+                        break
                     else:
                         break
         except KeyboardInterrupt:
@@ -400,7 +429,14 @@ class Runner:
 
         elapsed = time.time() - started
         state["elapsed"] = elapsed
-        if interrupted:
+        if failure is not None:
+            # 不抛出：交给调用方决定怎么展示（TUI 弹面板 / CLI 打日志）
+            state["error"] = errors.error_summary(failure)
+            state["error_type"] = type(failure).__name__
+            state["error_hints"] = errors.diagnose_error(failure)
+            state["success"] = False
+            state["verified"] = False
+        elif interrupted:
             state.setdefault("success", False)
             state.setdefault("verified", False)
         return state, elapsed
@@ -499,6 +535,10 @@ class TuiApp:
                     break
             except Abort:
                 self.console.print("[dim]已取消[/dim]")
+            except Exception as exc:  # noqa: BLE001 - 界面兜底：不把 traceback 甩给用户
+                self.console.print(panels.error_panel("操作失败", exc))
+                if os.environ.get("JWAVE_DEBUG"):
+                    raise
         self.console.print("[dim]再见 👋[/dim]")
         return 0
 
@@ -589,11 +629,19 @@ class TuiApp:
             result, elapsed = runner.run(query)
         except Abort:
             return
-        except RuntimeError as exc:
-            self.console.print(Panel(Text(str(exc), style="red"), title="[bold]运行失败[/bold]", border_style="red", box=panels.box.ROUNDED))
+        except KeyboardInterrupt:
+            self.console.print("[yellow]已中断[/yellow]")
             return
-        except (ValueError, FileNotFoundError) as exc:
-            self.console.print(f"[red]错误：{exc}[/red]")
+        except Exception as exc:  # noqa: BLE001 - 兜底：再意外也不能把 traceback 甩给用户
+            self.console.print(panels.error_panel("运行失败", exc))
+            return
+
+        # 节点里抛出的异常被 Runner 记进 state（而不是一路抛上来）
+        if result.get("error"):
+            self.last_result, self.last_query, self.last_elapsed = result, query, elapsed
+            self.console.print(panels.error_state_panel(result, title="运行中断：节点执行失败"))
+            self.console.print("[dim]提示：在「运行配置」里按 t 可以直接测一次 API 连通性。[/dim]")
+            self._save_history(result, query, elapsed)
             return
 
         self.last_result, self.last_query, self.last_elapsed = result, query, elapsed
@@ -692,11 +740,14 @@ class TuiApp:
                 table.add_row(str(i), field.key, _render_field_value(field, value, show_secret=True), field.help or field.label)
             self.console.print(Panel(table, title="[bold]可编辑项[/bold]", border_style="blue", box=panels.box.ROUNDED))
 
-            raw = self.prompter.ask("输入编号修改，v 校验配置，q 返回 › ").strip().lower()
+            raw = self.prompter.ask("输入编号修改，t 测连通性，v 校验配置，q 返回 › ").strip().lower()
             if raw in ("q", "", "quit"):
                 return
             if raw in ("v", "check", "validate"):
                 self.validate_settings()
+                continue
+            if raw in ("t", "test", "ping"):
+                self.probe_api()
                 continue
             try:
                 field = FIELDS[int(raw) - 1]
@@ -775,6 +826,37 @@ class TuiApp:
         for label, mark, detail in rows:
             table.add_row(label, mark, detail)
         self.console.print(Panel(table, title="[bold]配置自检[/bold]", border_style="blue", box=panels.box.ROUNDED))
+        self.console.print("[dim]这里只查本地配置；想验证 API 是否真的通，按 t 发一个最小请求。[/dim]")
+
+    def probe_api(self, *, timeout: float = 20.0) -> bool:
+        """发一个最小请求验证 API 连通性 —— 免得跑完整流程才发现网络不通。"""
+        from .llm import probe_api
+
+        if not self.settings.openai_api_key:
+            self.console.print(panels.error_panel("连通性测试失败", RuntimeError(
+                "未配置 API Key：请在「运行配置」里设置 OPENAI_API_KEY（或 DEEPSEEK_API_KEY）。"
+            )))
+            return False
+
+        model = self.settings.analyst_model
+        endpoint = self.settings.openai_base_url or "https://api.openai.com/v1"
+        self.console.print(f"[dim]正在向 {endpoint} 发送最小请求（模型 {model}，超时 {timeout:g}s）…[/dim]")
+        ok, payload, elapsed = probe_api(self.settings, model=model, timeout=timeout)
+        if not ok:
+            self.console.print(panels.error_panel("API 连通性测试失败", payload))
+            return False
+
+        reply = panels.clip(str(payload).replace("\n", " "), 160)
+        self.console.print(Panel(
+            Text.from_markup(
+                f"API 连通 ✅  模型 [bold]{model}[/bold] · 往返 {elapsed:.2f}s\n"
+                f"[dim]返回：{reply}[/dim]"
+            ),
+            title="[bold]API 连通性测试[/bold]",
+            border_style="green",
+            box=panels.box.ROUNDED,
+        ))
+        return True
 
     # -- 知识库 ---------------------------------------------------------- #
     def show_kb(self) -> None:
@@ -911,7 +993,19 @@ def run_tui(
     app = TuiApp(
         settings, overrides=overrides, console=console, initial_query=initial_query, auto_out=auto_out
     )
-    return app.run()
+    try:
+        return app.run()
+    except KeyboardInterrupt:
+        print("\n已中断", file=sys.stderr)
+        return 130
+    except Exception as exc:  # noqa: BLE001 - 最后一道网：CLI 不应该以 traceback 收场
+        if os.environ.get("JWAVE_DEBUG"):
+            raise
+        from .errors import format_error_text
+
+        print(f"\n界面遇到未预期的错误：\n  {format_error_text(exc)}", file=sys.stderr)
+        print("（设置 JWAVE_DEBUG=1 可查看完整 traceback）", file=sys.stderr)
+        return 1
 
 
 def main(argv: list[str] | None = None) -> int:

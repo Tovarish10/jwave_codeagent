@@ -149,6 +149,7 @@ python -m jwave_flow "..." --backend jupyter --top-k 6 --out sim.py
 python -m jwave_flow "..." --json          # 打印完整状态
 python -m jwave_flow --query-file req.txt --quiet
 python -m jwave_flow --no-tui              # 强制不进入交互界面
+python -m jwave_flow --check-api           # 只验证 API/网络连通性（排错用）
 ```
 
 > 传入需求参数后默认走非交互路径；只有在**没有需求**且 stdin 是终端时才自动进入交互界面，
@@ -295,12 +296,49 @@ jwave-dify-langchain/
 │   ├── cli.py                  # python -m jwave_flow（TUI / 非交互两条路径）
 │   ├── tui.py                  # 交互式界面：菜单 / 向导 / 实时流水线 / 配置编辑器
 │   ├── panels.py               # Rich 渲染件（流程、关卡、报告、知识库、历史）
+│   ├── errors.py               # 异常 -> 人话（网络/鉴权/模型名/限流归因）
 │   └── history.py              # run/history.jsonl 读写
 ├── kb/                         # 知识库 + 备份 + 修改记录
 ├── tools/fix_kb.py             # 知识库修正工具（幂等 / 可回滚）
 ├── docs/MAPPING.md             # Dify ↔ LangGraph 映射表
 └── tests/
 ```
+
+## 排错：先分清「网络问题」和「生成代码的问题」
+
+LLM 调用失败（例如 `OpenAIConnectionError: Connection error.`，根因多为
+`httpcore.ConnectError: [Errno 104] Connection reset by peer`）与工作流本身无关，
+**先单独验证连通性**：
+
+```bash
+python -m jwave_flow --check-api
+```
+
+```
+探测 https://api.deepseek.com/v1
+  模型: deepseek-v4-flash
+  API Key: 已配置
+❌ 连通性测试失败（0.57s）
+  OpenAIConnectionError: Connection error.
+
+  这是网络层失败（连接被重置 / TLS 握手失败），不是生成代码的问题。
+  · 先确认能不能直连 endpoint：curl -v $OPENAI_BASE_URL/models
+  · 国内直连 DeepSeek 用 https://api.deepseek.com/v1；需要代理时先设好代理再启动
+  · WSL 里常见的「Connection reset by peer」多为 MTU/代理问题：可在 Windows 侧开代理，或调小 WSL 的 MTU
+  · httpx 会自动读取 HTTPS_PROXY / ALL_PROXY；确认它们对当前终端生效，或先 unset 掉错误的代理
+```
+
+交互界面里等价的操作是：`2 运行配置` → 按 `t`。
+
+其他约定：
+
+* 任何节点抛错都**不会**再以 traceback 收场。流程图会把出错的节点标成 ✖，
+  下方给出归因（网络 / 鉴权 / 模型名 / 限流）与建议，然后回到主菜单；
+  失败运行同样写入 `run/history.jsonl`（含 `error` / `error_hints`），便于回看。
+* 非交互模式同类错误输出同样的文案并返回退出码 `2`，方便 CI 判断。
+* 想看清真正的堆栈（开发用）：`JWAVE_DEBUG=1 python -m jwave_flow ...`。
+
+`errors.py` 里的归类是纯字符串/异常链判断，不依赖网络，也方便你自己加规则。
 
 ## 已知限制
 
