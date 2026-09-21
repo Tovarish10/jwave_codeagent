@@ -6,13 +6,7 @@ import json
 import sys
 from pathlib import Path
 
-from .config import DEEPSEEK_DEFAULT_BASE_URL, Settings, _env
-
-try:  # openai 是 langchain-openai 的依赖，理论上一定在
-    from openai import APIError as _APIError
-except Exception:  # pragma: no cover
-    class _APIError(Exception):  # type: ignore
-        pass
+from .config import Settings
 from .graph import SimulationWorkflow
 
 
@@ -38,19 +32,17 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--out", type=Path, help="把最终代码写到该文件")
     p.add_argument("--json", action="store_true", help="以 JSON 打印完整最终状态")
     p.add_argument("--quiet", action="store_true", help="不打印过程日志")
+    p.add_argument(
+        "--check-api",
+        action="store_true",
+        help="只发一个最小请求验证 API/网络是否可达，然后退出",
+    )
+    p.add_argument("--tui", action="store_true", help="强制使用交互式界面（可视化流水线）")
+    p.add_argument("--no-tui", action="store_true", help="禁用交互式界面（无需求时直接报错）")
     return p
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = _build_parser().parse_args(argv)
-
-    query = args.query
-    if args.query_file:
-        query = Path(args.query_file).read_text(encoding="utf-8").strip()
-    if not query:
-        print("错误：请提供需求（位置参数 query 或 --query-file）", file=sys.stderr)
-        return 2
-
+def _overrides_from_args(args) -> dict:
     overrides: dict = {}
     if args.kb:
         overrides["kb_path"] = args.kb
@@ -67,7 +59,85 @@ def main(argv: list[str] | None = None) -> int:
         overrides["coder_model"] = args.model
     if args.quiet:
         overrides["verbose"] = False
+    return overrides
 
+
+def _check_api(overrides: dict) -> int:
+    """``--check-api``：把「配置 / 网络 / 鉴权 / 模型名」问题单独暴露出来。
+
+    先做**配置自洽性**检查（Key 与 endpoint 是否同一家），再发探测请求——
+    否则会像以前那样：拿 DeepSeek 的 key 去探测 OpenAI 的地址，
+    然后把「配置串了」误报成「网络不通」。
+    """
+    from .config import endpoint_key_mismatch, endpoint_provider, key_source
+    from .errors import format_error_text
+    from .llm import probe_api
+
+    settings = Settings.from_env(**overrides)
+    endpoint = settings.openai_base_url or "https://api.openai.com/v1"
+    source = key_source()
+    print(
+        f"探测 {endpoint}（provider={endpoint_provider(settings.openai_base_url)}）\n"
+        f"  模型: {settings.analyst_model}\n"
+        f"  API Key: {'已配置' if settings.openai_api_key else '未配置 ⚠️'}"
+        + (f"（来自 {source}）" if settings.openai_api_key and source else ""),
+        file=sys.stderr,
+    )
+    if not settings.openai_api_key:
+        print("❌ 未配置 API Key（OPENAI_API_KEY / DEEPSEEK_API_KEY）", file=sys.stderr)
+        return 2
+
+    mismatch = endpoint_key_mismatch(settings)
+    if mismatch:
+        print(f"❌ 配置不匹配，请先改这里（网络多半没问题）：\n  · {mismatch}", file=sys.stderr)
+        return 2
+
+    ok, payload, elapsed = probe_api(settings, timeout=20.0)
+    if ok:
+        print(f"✅ API 连通（{elapsed:.2f}s）\n  返回：{str(payload)[:200]}", file=sys.stderr)
+        return 0
+    print(
+        f"❌ 连通性测试失败（{elapsed:.2f}s）\n  {format_error_text(payload, settings=settings)}",
+        file=sys.stderr,
+    )
+    return 2
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _build_parser().parse_args(argv)
+
+    query = args.query
+    if args.query_file:
+        query = Path(args.query_file).read_text(encoding="utf-8").strip()
+
+    if args.check_api:
+        return _check_api(_overrides_from_args(args))
+
+    # 没有需求时（或显式 --tui）进入交互式界面；有 --json 说明是脚本场景，不自动进 TUI
+    wants_tui = args.tui or (
+        not query and not args.no_tui and not args.json and sys.stdin is not None and sys.stdin.isatty()
+    )
+    if wants_tui:
+        from .tui import RICH_AVAILABLE, run_tui
+
+        if not RICH_AVAILABLE:
+            print(
+                "交互式界面需要 rich：pip install rich prompt_toolkit\n"
+                "或改用非交互模式：jwave_flow \"你的需求\"",
+                file=sys.stderr,
+            )
+            return 2
+        return run_tui(
+            _overrides_from_args(args),
+            initial_query=(query or "").strip(),
+            auto_out=args.out,
+        )
+
+    if not query:
+        print("错误：请提供需求（位置参数 query 或 --query-file）", file=sys.stderr)
+        return 2
+
+    overrides = _overrides_from_args(args)
     settings = Settings.from_env(**overrides)
     print(f"知识库: {settings.resolved_kb_path()}", file=sys.stderr)
     print(
@@ -86,20 +156,11 @@ def main(argv: list[str] | None = None) -> int:
     except (RuntimeError, ValueError, FileNotFoundError) as exc:
         print(f"错误：{exc}", file=sys.stderr)
         return 2
-    except _APIError as exc:
-        base = settings.openai_base_url or "https://api.openai.com/v1（默认）"
-        print(f"错误：调用 LLM 服务失败 —— {type(exc).__name__}: {exc}", file=sys.stderr)
-        print(f"  base_url : {base}", file=sys.stderr)
-        print(f"  key 来源 : {'OPENAI_API_KEY' if _env('OPENAI_API_KEY') else 'DEEPSEEK_API_KEY'}", file=sys.stderr)
-        print(f"  模型     : {settings.analyst_model}", file=sys.stderr)
-        print("  排查建议：", file=sys.stderr)
-        if "deepseek" not in base.lower() and _env("DEEPSEEK_API_KEY") and not _env("OPENAI_API_KEY"):
-            print(f"   1) 你用的是 DeepSeek 的 key，base_url 应为 {DEEPSEEK_DEFAULT_BASE_URL}", file=sys.stderr)
-            print("      （只设 DEEPSEEK_API_KEY 时会自动推断；也可显式 export OPENAI_BASE_URL=...）", file=sys.stderr)
-        else:
-            print("   1) 确认 base_url 与 key 属于同一服务商", file=sys.stderr)
-        print("   2) 检查网络 / 代理是否可达该地址（curl -v <base_url>/models）", file=sys.stderr)
-        return 3
+    except Exception as exc:  # noqa: BLE001 - 网络/服务端异常也要给人话，而不是 traceback
+        from .errors import format_error_text
+
+        print(f"\n运行失败：\n  {format_error_text(exc, settings=settings)}", file=sys.stderr)
+        return 2
 
     if args.json:
         print(json.dumps({k: v for k, v in result.items() if k != "kb_docs"}, ensure_ascii=False, indent=2, default=str))
@@ -129,7 +190,6 @@ def main(argv: list[str] | None = None) -> int:
             print("  ✅ 语义校验通过", file=sys.stderr)
         else:
             print("  ⚠️ 未通过语义校验，请人工确认", file=sys.stderr)
-            # 把真正的失败原因也打出来（此前会被语义门的文案覆盖掉）
             raw = (result.get("last_error") or result.get("stderr") or "").strip()
             if raw:
                 print("  ---- 最近一次执行的错误输出 ----", file=sys.stderr)

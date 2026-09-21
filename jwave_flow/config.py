@@ -50,6 +50,55 @@ def resolve_llm_endpoint() -> tuple[str | None, str | None]:
     return key, base
 
 
+# --------------------------------------------------------------------------- #
+# endpoint / key 一致性判断（供错误归因使用）
+# --------------------------------------------------------------------------- #
+def key_source() -> str | None:
+    """实际生效的 API Key 来自哪个环境变量。"""
+    if _env("OPENAI_API_KEY"):
+        return "OPENAI_API_KEY"
+    if _env("DEEPSEEK_API_KEY"):
+        return "DEEPSEEK_API_KEY"
+    return None
+
+
+def endpoint_provider(base_url: str | None) -> str:
+    """粗略判断 endpoint 属于哪家服务商。"""
+    if not base_url:
+        return "openai"                      # langchain/openai 自己的默认地址
+    url = base_url.lower()
+    if "deepseek" in url:
+        return "deepseek"
+    if "openai.com" in url:
+        return "openai"
+    if "dashscope" in url or "aliyun" in url:
+        return "dashscope"
+    if "localhost" in url or "127.0.0.1" in url or "0.0.0.0" in url:
+        return "local"
+    return "other"
+
+
+def endpoint_key_mismatch(settings: "Settings | None") -> str | None:
+    """Key 与 endpoint 明显不属于同一服务商时给出说明，否则 ``None``。
+
+    典型的坑：`DEEPSEEK_API_KEY` 配上了 `OPENAI_BASE_URL=https://api.openai.com/v1`
+    （或没设 base_url 而落到 OpenAI 默认地址）。此时报错信息看起来像网络问题
+    （`Connection reset by peer`），实际是配置串了——必须指出来，否则用户会
+    一直去调 MTU / 代理。
+    """
+    if settings is None or key_source() != "DEEPSEEK_API_KEY":
+        return None
+    provider = endpoint_provider(settings.openai_base_url)
+    if provider in ("deepseek", "local", "other"):
+        return None                           # 自建网关/中转都算合理
+    endpoint = settings.openai_base_url or "https://api.openai.com/v1（默认）"
+    return (
+        f"API Key 来自 DEEPSEEK_API_KEY，但 endpoint 指向 {endpoint}"
+        f"（provider={provider}）。请设置 OPENAI_BASE_URL={DEEPSEEK_DEFAULT_BASE_URL}"
+        "（只设 DEEPSEEK_API_KEY、不设 OPENAI_BASE_URL 时会自动推断）"
+    )
+
+
 @dataclass
 class Settings:
     """All runtime knobs for the workflow."""

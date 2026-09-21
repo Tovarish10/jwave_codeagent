@@ -8,6 +8,8 @@ the workflow portable across DeepSeek / vLLM / Ollama / OpenAI / ...
 from __future__ import annotations
 
 import re
+import time
+from dataclasses import replace
 from typing import Any, Sequence, Type
 
 from pydantic import BaseModel, Field
@@ -64,6 +66,35 @@ def build_chat_model(settings: Settings, model: str):
     if settings.openai_base_url:
         kwargs["base_url"] = settings.openai_base_url
     return ChatOpenAI(**kwargs)
+
+
+def message_text(message: Any) -> str:
+    """把 ChatModel 的返回统一成纯文本（部分 provider 返回 content blocks）。"""
+    content = getattr(message, "content", message)
+    if isinstance(content, list):
+        return "".join(
+            part.get("text", "") if isinstance(part, dict) else str(part) for part in content
+        )
+    return str(content)
+
+
+def probe_api(
+    settings: Settings, *, model: str | None = None, timeout: float = 20.0
+) -> tuple[bool, Any, float]:
+    """发一个最小请求验证连通性：返回 ``(是否成功, 回复或异常, 耗时秒)``。
+
+    刻意不发完整的仿真提示词——只为把「网络/鉴权/模型名」这类问题从
+    「生成代码的问题」里区分出来。
+    """
+    model = model or settings.analyst_model
+    probe_settings = replace(settings, request_timeout=timeout, max_retries=0)
+    started = time.time()
+    try:
+        llm = build_chat_model(probe_settings, model)
+        message = llm.invoke("ping")
+    except Exception as exc:  # noqa: BLE001 - 调用方负责展示
+        return False, exc, time.time() - started
+    return True, message_text(message), time.time() - started
 
 
 def _first_present(data: Any, keys: Sequence[str]) -> str | None:
