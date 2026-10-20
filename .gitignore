@@ -6,3 +6,4 @@ run/
 workspace/
 *.egg-info/
 .vscode/
+.kilo/

@@ -679,6 +679,39 @@ jw.utils.display_complex_field(field)
 - `padding`: 图像边缘的填充量，默认 0
 - `image_size`: 输出图像尺寸（不含填充），默认 None（保持原尺寸）
 
+### 仿真结果输出与 matplotlib 产物
+
+代码生成不仅要完成求解，还必须把结果交付给用户。`__JWAVE_SELFCHECK__`
+行只是工作流解析用的机器输出，不能替代用户结果。
+
+**数值结果**：根据需求用 `print` 输出实际结果，例如模态分析的
+`(nx, ny)`、频率表，时域仿真的 `max(abs(pressure))`、时间步数和采样间隔。
+不要只打印调试信息或自检 JSON。
+
+**二维场图像**：执行器可能没有图形界面，使用非交互后端并保存文件：
+
+```python
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+from pathlib import Path
+
+output_dir = Path("outputs")
+output_dir.mkdir(parents=True, exist_ok=True)
+plt.figure()
+plt.imshow(field_2d)
+plt.colorbar(label="Pressure")
+plt.tight_layout()
+image_path = output_dir / "pressure_field.png"
+plt.savefig(image_path, dpi=150)
+plt.close()
+print(f"压力场图片: {image_path}")
+```
+
+必须调用 `savefig` 并打印保存路径；仅调用 `plt.show()` 在无头执行器中不会产生
+可交付图片。时域结果通常选择最终时刻或峰值时刻的二维切片，四维数组应先明确
+选择时间索引和最后一个通道，例如 `field[-1, ..., 0]`。
+
 ### get_smallest_prime_factors 函数 — 可视化
 
 `get_smallest_prime_factors` 返回给定数的最小质因数集合。用于选择 FFT 友好的网格尺寸——当网格尺寸的最小质因数较小时，FFT 效率最高。

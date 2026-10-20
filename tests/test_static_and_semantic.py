@@ -101,7 +101,8 @@ def test_selfcheck_parsed_from_noisy_stdout():
 
 def test_semantic_ok_for_healthy_field():
     r = check_semantics(
-        _line({"finite": True, "abs_max": 5016.6, "shape": [1001, 64, 64, 1], "f0": 5e6}),
+        "pressure max=5016.6\n"
+        + _line({"finite": True, "abs_max": 5016.6, "shape": [1001, 64, 64, 1], "f0": 5e6}),
         _settings(),
         expected={"frequency": 5e6},
     )
@@ -113,6 +114,15 @@ def test_semantic_flags_missing_selfcheck():
     assert not r.ok and "找不到自检行" in r.issues[0]
 
 
+def test_semantic_rejects_marker_only_output():
+    r = check_semantics(
+        _line({"finite": True, "abs_max": 1.0, "shape": [4]}),
+        _settings(),
+    )
+    assert not r.ok
+    assert any("用户可读" in issue for issue in r.issues)
+
+
 def test_semantic_flags_nan_and_zero_and_divergence():
     base = {"shape": [4, 4, 4, 1]}
     assert not check_semantics(_line({**base, "finite": False, "abs_max": 1.0}), _settings()).ok
@@ -122,7 +132,8 @@ def test_semantic_flags_nan_and_zero_and_divergence():
 
 def test_semantic_flags_frequency_mismatch():
     r = check_semantics(
-        _line({"finite": True, "abs_max": 1.0, "shape": [4], "f0": 2e6}),
+        "pressure max=1\n"
+        + _line({"finite": True, "abs_max": 1.0, "shape": [4], "f0": 2e6}),
         _settings(),
         expected={"frequency": 5e6},
     )

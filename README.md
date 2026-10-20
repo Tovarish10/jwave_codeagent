@@ -11,12 +11,12 @@
                         └──── ⑦ 代码纠错 ←────┘   （循环 ≤ 10 轮）
 ```
 
-节点、边与提示词的逐项对照见 [docs/MAPPING.md](docs/MAPPING.md)。
+节点、边与提示词的逐项对照见 [./docs/MAPPING.md](docs/MAPPING.md)。
 
 ## 安装
 
 ```bash
-conda activate jw                          # 或任意 Python >= 3.10 环境
+conda activate jw                          # 请替换为本机的任意 Python >= 3.10 环境
 pip install -r requirements.txt            # 编排层：langchain / langgraph / openai / rich
 pip install -r requirements-runtime.txt    # jwave 仿真运行时 + 可选执行后端
 ```
@@ -116,7 +116,12 @@ with SimulationWorkflow(Settings.from_env()) as wf:
 |------|------|----------|
 | 参数物理预检 | 生成代码之前 | 每波长网格点数、Nyquist 采样、仿真时长、PML 厚度、源位置。不合格则不进入代码生成，回退重试参数提取（≤2 轮）；参数中没有 `dx` 时反算合规上限并注入提示词 |
 | 静态规则检查 | 运行之前 | 8 条 AST 规则拦截已知的错误用法：`tone_burst(dt,…)`、对压力场的二次转换、浮点 `positions`、`Sources` 关键字参数、`signals`/`positions` 传 list 等。命中的代码一次都不会被执行 |
-| 语义数值门 | 运行之后 | 要求代码打印 `__JWAVE_SELFCHECK__{...}` 自检行，校验有限性、`|p|max` 非零与量级、形状、频率是否与需求一致 |
+| 语义数值门 | 运行之后 | 要求代码输出用户可读结果和 `__JWAVE_SELFCHECK__{...}` 自检行，校验有限性、`|p|max` 非零与量级、形状、频率是否与需求一致 |
+
+自检行是工作流解析用的机器输出，不是仿真结果，不能作为唯一 stdout。
+生成代码还必须打印与需求对应的数值结果；用户要求二维场、快照或可视化时，
+必须使用 matplotlib 的 `Agg` 后端将图片保存到执行器当前工作目录的 `outputs/`，
+并打印生成的文件路径。执行器会在 `new_files` 和 `outputs` 字段中返回这些产物。
 
 ```bash
 # 单独关闭某一道（排查时用）
@@ -136,7 +141,7 @@ PARAM_CHECK=0 STATIC_CHECK=0 REQUIRE_SELFCHECK=0 python -m jwave_flow "..."
 | `auto` | 先试 `jupyter`，失败降级 `subprocess` | — |
 
 生成的代码以当前用户权限运行，仅有超时与独立工作目录隔离，**不是安全沙箱**。
-执行器默认注入 `JAX_PLATFORMS=cpu`（本机 CUDA 后端会段错误）与 `MPLCONFIGDIR`
+执行器默认注入 `JAX_PLATFORMS=cpu`与 `MPLCONFIGDIR`
 （否则 matplotlib 字体缓存会写 stderr，被循环误判为失败）。首次运行可先执行
 `python tools/warm_env.py` 完成预热。
 

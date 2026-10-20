@@ -26,21 +26,40 @@ from .config import Settings
 
 MARKER = "__JWAVE_SELFCHECK__"
 
+RESULT_OUTPUT_CONTRACT = '''
+【用户结果输出契约 · 必须遵守】
+自检行不是最终结果，不能作为唯一输出。程序必须在自检行之外输出用户可读的仿真结果：
+
+1. 用 print 输出与用户需求直接对应的数值结果（例如模态阶数与频率表、
+   压力场最大值、时间步数、接收点波形摘要等）；不要只输出调试信息。
+2. 用户要求二维场、快照或可视化时，使用 matplotlib 的非交互后端生成图片，
+   保存到当前工作目录的 outputs/ 目录（例如 outputs/pressure_field.png），
+   必须调用 savefig，不能只调用 show()。保存后用 print 明确报告文件路径。
+3. 解析模态分析必须打印排序后的模态列表及 (nx, ny) 和频率；
+   不要为了满足时域自检而伪造 time_axis、source_frequency 或传播场。
+4. 结果输出可以出现在自检行之前或之后，但必须保留下面的机器可读自检行。
+'''
+
 # 追加到「代码生成 / 代码纠错」提示词里的输出契约
 SELFCHECK_CONTRACT = f'''
 【输出契约 · 必须遵守】
-在代码的最后，额外打印一行机器可读的自检结果（**单行**、以 {MARKER} 开头、紧随合法 JSON）：
+在代码中额外打印一行机器可读的自检结果（**单行**、以 {MARKER} 开头、紧随合法 JSON）。
+这一行是给工作流解析的附加信息，不是用户结果，也不是唯一允许的输出：
 
+_check_field = _field.params if hasattr(_field, "params") else _field
+_check_time_axis = globals().get("time_axis")
+_check_frequency = globals().get("source_frequency", 0.0)
 print("{MARKER}" + json.dumps({{
-    "finite": bool(jnp.all(jnp.isfinite(_field))),
-    "abs_max": float(jnp.max(jnp.abs(_field))),
-    "shape": list(_field.shape),
-    "dt": float(time_axis.dt),
-    "f0": float(source_frequency),
+    "finite": bool(jnp.all(jnp.isfinite(_check_field))),
+    "abs_max": float(jnp.max(jnp.abs(_check_field))),
+    "shape": list(_check_field.shape),
+    "dt": float(_check_time_axis.dt) if _check_time_axis is not None else 0.0,
+    "f0": float(_check_frequency),
 }}))
 
 其中 _field 是你最终得到的压力场；若它是 Field/OnGrid 对象，请用 _field.params。
-除了这一行之外不要再增加别的输出。
+如果任务是解析模态分析而没有时域压力场，请用最终模态场作为 _field，
+并将 dt/f0 填为任务中实际存在的值；不要凭空构造时域传播结果。
 '''
 
 
@@ -88,6 +107,13 @@ def parse_selfcheck(stdout: str) -> dict[str, Any] | None:
     return None
 
 
+def has_user_output(stdout: str) -> bool:
+    """Return whether stdout contains output other than the machine marker."""
+    if not stdout:
+        return False
+    return any(line.strip() and MARKER not in line for line in stdout.splitlines())
+
+
 def _num(value: Any) -> float | None:
     if isinstance(value, bool):
         return None
@@ -118,6 +144,10 @@ def check_semantics(
                 "，无法判断结果是否有效"
             )
         return report
+
+    if not has_user_output(stdout):
+        report.issues.append("程序只输出了机器自检行，缺少用户可读的仿真结果")
+    report.checked.append("S0_user_output")
 
     report.present = True
     report.data = data

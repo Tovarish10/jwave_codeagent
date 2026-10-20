@@ -24,7 +24,7 @@ from .config import Settings
 from .executor import BaseExecutor, get_executor
 from .knowledge import build_retriever, render_template_transform
 from .physics import check_params
-from .semantic import SELFCHECK_CONTRACT, check_semantics
+from .semantic import RESULT_OUTPUT_CONTRACT, SELFCHECK_CONTRACT, check_semantics
 from .static_check import check_code
 from .llm import GeneratedCode, FixedCode, build_chat_model, invoke_code_llm
 from .prompts import (
@@ -163,7 +163,10 @@ class SimulationWorkflow:
             if warnings:
                 extra.append("注意以下参数问题：\n" + "\n".join(f"- {w}" for w in warnings))
             messages = list(messages) + [HumanMessage(content="\n\n".join(extra))]
-        messages = list(messages) + [HumanMessage(content=SELFCHECK_CONTRACT)]
+        messages = list(messages) + [
+            HumanMessage(content=RESULT_OUTPUT_CONTRACT),
+            HumanMessage(content=SELFCHECK_CONTRACT),
+        ]
         prompt = messages
         code = invoke_code_llm(self.coder_llm, prompt, GeneratedCode, ["code"])
         return {
@@ -290,7 +293,10 @@ class SimulationWorkflow:
             context=state.get("kb_context", ""),
             stderr=reason,
         )
-        messages = list(messages) + [HumanMessage(content=SELFCHECK_CONTRACT)]
+        messages = list(messages) + [
+            HumanMessage(content=RESULT_OUTPUT_CONTRACT),
+            HumanMessage(content=SELFCHECK_CONTRACT),
+        ]
         fixed = invoke_code_llm(self.coder_llm, messages, FixedCode, ["code_2", "code"])
         return {
             "code_final": fixed,
