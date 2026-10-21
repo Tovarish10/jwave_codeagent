@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>jwave studio</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark">jw</span><span>jwave studio</span><small>AI simulation workspace</small></div>
+      <div id="runtimeBadge" class="runtime-badge">连接中…</div>
+    </header>
+
+    <main class="main-grid">
+      <section class="hero">
+        <div class="eyebrow">SIMULATION WORKFLOW / LANGGRAPH</div>
+        <h1>把自然语言，<em>变成可验证的仿真代码。</em></h1>
+        <p>描述你的声学仿真需求，jwave agent 会完成需求分析、知识检索、代码生成、执行与三道质量检查。</p>
+      </section>
+
+      <section class="composer card">
+        <div class="section-heading"><span>新的仿真任务</span><span class="hint">支持多行需求</span></div>
+        <textarea id="query" rows="4" placeholder="例如：生成一个 128×128 的二维时域声学仿真，声速 1500 m/s，5 MHz 点源"></textarea>
+        <div class="composer-footer">
+          <div class="presets">
+            <button class="chip" data-query="生成一个 128×128 的二维时域声学仿真，声速 1500 m/s，5 MHz 点源">二维点源</button>
+            <button class="chip" data-query="做一个 256×256 网格的二维声场仿真，中心频率 1 MHz，展示压力场结果">压力场</button>
+          </div>
+          <button id="runBtn" class="primary-btn"><span>运行工作流</span><span class="arrow">→</span></button>
+        </div>
+      </section>
+
+      <section class="workspace card">
+        <div class="section-heading"><span>工作流进度</span><span id="elapsed" class="hint">等待任务</span></div>
+        <div id="steps" class="steps"></div>
+        <div id="activity" class="activity empty">提交需求后，这里会显示每个节点的实时进展。</div>
+      </section>
+
+      <section class="two-col">
+        <div class="card result-card">
+          <div class="section-heading"><span>验证结果</span><span id="resultStatus" class="status neutral">未运行</span></div>
+          <div class="gates" id="gates"></div>
+          <div class="metrics" id="metrics"><div class="empty">完成一次任务后显示自检数据。</div></div>
+        </div>
+        <div class="card history-card">
+          <div class="section-heading"><span>最近任务</span><button id="refreshHistory" class="text-btn">刷新</button></div>
+          <div id="history" class="history-list"></div>
+        </div>
+      </section>
+
+      <section class="card code-card">
+        <div class="section-heading">
+          <span>最终代码</span>
+          <div class="code-actions">
+            <input id="filename" class="filename-input" value="jwave_simulation.py" aria-label="保存文件名">
+            <button id="saveCode" class="outline-btn">另存为</button>
+            <button id="copyCode" class="text-btn">复制代码</button>
+          </div>
+        </div>
+        <pre id="code"><code>运行工作流后，生成的 jwave 代码会显示在这里。</code></pre>
+      </section>
+    </main>
+    <footer>jwave_codeagent · 本地运行 · API Key 不会发送到浏览器</footer>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>
