@@ -28,6 +28,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from jwave_flow.config import Settings  # noqa: E402
 from jwave_flow.graph import SimulationWorkflow  # noqa: E402
 from jwave_flow.history import append_record, load_records, make_record  # noqa: E402
+from jwave_flow.session_store import SessionStore  # noqa: E402
 
 
 def _json_default(value: Any) -> str:
@@ -72,8 +73,17 @@ def _public_update(update: dict[str, Any]) -> dict[str, Any]:
         "stdout", "stderr", "last_error", "fix_reason", "results", "outputs",
         "new_files", "execution_time", "iterations", "success", "semantic_issues",
         "selfcheck", "verified", "text", "trace", "error", "error_hints",
+        "requirement_completed", "completion_feedback", "completion_rounds",
     }
     return {key: update[key] for key in allowed if key in update}
+
+
+def _session_id_from_run_path(path: str) -> str:
+    """Return a session id only for the exact ``/api/sessions/{id}/run`` route."""
+    parts = path.split("/")
+    if len(parts) == 5 and parts[1:3] == ["api", "sessions"] and parts[4] == "run":
+        return parts[3]
+    return ""
 
 
 class WebHandler(SimpleHTTPRequestHandler):
@@ -87,8 +97,26 @@ class WebHandler(SimpleHTTPRequestHandler):
     def log_message(self, format: str, *args: Any) -> None:
         print(f"[web] {format % args}", flush=True)
 
+    def end_headers(self) -> None:
+        # Frontend assets are edited locally during development; avoid showing
+        # a stale index/app bundle after restarting the server.
+        path = urlparse(self.path).path
+        if path == "/" or path.endswith((".html", ".js", ".css")):
+            self.send_header("Cache-Control", "no-store, max-age=0")
+        super().end_headers()
+
     def do_GET(self) -> None:  # noqa: N802
         path = urlparse(self.path).path
+        if path == "/api/sessions":
+            _send_json(self, {"sessions": SessionStore().list()})
+            return
+        if path.startswith("/api/sessions/"):
+            session = SessionStore().get(path.rsplit("/", 1)[-1])
+            if session is None:
+                _send_json(self, {"error": "会话不存在"}, HTTPStatus.NOT_FOUND)
+            else:
+                _send_json(self, {"session": session})
+            return
         if path == "/api/config":
             try:
                 _send_json(self, {"settings": _safe_settings(Settings.from_env())})
@@ -106,7 +134,18 @@ class WebHandler(SimpleHTTPRequestHandler):
         super().do_GET()
 
     def do_POST(self) -> None:  # noqa: N802
-        if urlparse(self.path).path != "/api/run":
+        path = urlparse(self.path).path
+        if path == "/api/sessions":
+            try:
+                request = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))) or b"{}")
+                title = str(request.get("title", "")).strip()
+            except (ValueError, json.JSONDecodeError) as exc:
+                _send_json(self, {"error": f"请求格式错误：{exc}"}, HTTPStatus.BAD_REQUEST)
+                return
+            _send_json(self, {"session": SessionStore().create(title)})
+            return
+        path_session_id = _session_id_from_run_path(path)
+        if not (path == "/api/run" or path_session_id):
             _send_json(self, {"error": "Not found"}, HTTPStatus.NOT_FOUND)
             return
         try:
@@ -126,6 +165,31 @@ class WebHandler(SimpleHTTPRequestHandler):
         self.send_header("Connection", "close")
         self.end_headers()
 
+        store = SessionStore()
+        session_id = str(request.get("session_id", "")).strip()
+        if path_session_id:
+            session_id = path_session_id
+        session = None
+        if session_id:
+            session = store.get(session_id)
+            if session is None:
+                _send_json(self, {"error": "会话不存在"}, HTTPStatus.NOT_FOUND)
+                return
+        elif path == "/api/run":
+            session = store.create(query)
+            session_id = session["id"]
+
+        current = (session or {}).get("current") or {}
+        context = ""
+        if current:
+            context = (
+                f"当前代码：\n{current.get('code', '')}\n\n"
+                f"当前参数：\n{current.get('params_json', '')}\n\n"
+                f"上一轮需求：{current.get('last_query', '')}\n"
+                f"上一轮执行结果：success={current.get('success')}, verified={current.get('verified')}\n"
+                f"上一轮错误：{current.get('stderr') or current.get('error') or '无'}"
+            )
+
         started = time.time()
         state: dict[str, Any] = {"query": query}
 
@@ -133,12 +197,13 @@ class WebHandler(SimpleHTTPRequestHandler):
             self.wfile.write((json.dumps(event, ensure_ascii=False, default=_json_default) + "\n").encode("utf-8"))
             self.wfile.flush()
 
-        emit({"type": "start", "query": query})
+        emit({"type": "start", "query": query, "session_id": session_id,
+              "turn_index": len((session or {}).get("turns") or []) + 1})
         try:
             settings = Settings.from_env()
             emit({"type": "config", "settings": _safe_settings(settings)})
             with SimulationWorkflow(settings) as workflow:
-                for update in workflow.stream(query):
+                for update in workflow.stream(query, conversation_context=context, session_id=session_id):
                     if not isinstance(update, dict):
                         continue
                     for node, patch in update.items():
@@ -147,7 +212,12 @@ class WebHandler(SimpleHTTPRequestHandler):
                             emit({"type": "node", "node": node, "state": _public_update(patch)})
                 state["elapsed"] = time.time() - started
                 emit({"type": "complete", "state": _public_update(state)})
-            append_record(make_record(state, query, settings, elapsed=state["elapsed"]))
+            session = store.append_turn(session or store.create(query), query, state)
+            state["session_id"] = session_id
+            record = make_record(state, query, settings, elapsed=state["elapsed"])
+            record["session_id"] = session_id
+            append_record(record)
+            emit({"type": "session", "session": session})
         except Exception as exc:
             message = str(exc) or exc.__class__.__name__
             emit({"type": "error", "error": message})

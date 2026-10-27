@@ -81,7 +81,11 @@ class SimulationWorkflow:
         return trace
 
     def n_analyze(self, state: WorkflowState) -> dict:
-        prompt = requirement_analyst_prompt().format_messages(query=state["query"])
+        query = state["query"]
+        context = state.get("conversation_context", "")
+        if context:
+            query = f"{query}\n\n这是当前会话的已有上下文。请在保留未修改内容的前提下理解本轮修改：\n{context}"
+        prompt = requirement_analyst_prompt().format_messages(query=query)
         requirement = _as_text(self.analyst_llm.invoke(prompt))
         return {"requirement": requirement, "trace": self._log(state, "① 需求分析 完成")}
 
@@ -97,8 +101,12 @@ class SimulationWorkflow:
         return {"kb_context": context, "trace": self._log(state, f"③ 模板转换 {len(context)} 字符")}
 
     def n_extract(self, state: WorkflowState) -> dict:
+        query = state["query"]
+        context = state.get("conversation_context", "")
+        if context:
+            query = f"{query}\n\n已有会话参数和代码如下，请将本轮修改合并到已有状态：\n{context}"
         messages = param_extract_prompt().format_messages(
-            query=state["query"], kb_context=state.get("kb_context", "")
+            query=query, kb_context=state.get("kb_context", "")
         )
         # 方案一：如果上一轮物理预检没通过，把问题回灌，让模型修正参数
         previous = state.get("param_issues") or []
@@ -177,6 +185,17 @@ class SimulationWorkflow:
                     content=(
                         "上一轮需求完成度评审认为答案仍未完成，请针对以下意见修改代码，"
                         "并确保输出直接覆盖用户问题：\n- " + completion_feedback
+                    )
+                )
+            ]
+        context = state.get("conversation_context", "")
+        if context:
+            messages = list(messages) + [
+                HumanMessage(
+                    content=(
+                        "这是一个已有仿真会话。请基于当前代码进行本轮修改，"
+                        "保留用户未要求改变的功能，并输出完整可运行代码。\n"
+                        + context
                     )
                 )
             ]
@@ -487,10 +506,11 @@ class SimulationWorkflow:
         return g.compile()
 
     # -- public API ---------------------------------------------------- #
-    def invoke(self, query: str, **kwargs) -> WorkflowState:
+    def invoke(self, query: str, *, conversation_context: str = "", session_id: str = "", **kwargs) -> WorkflowState:
         start = time.time()
         state: WorkflowState = {
-            "query": query, "trace": [], "iterations": 0, "param_check_rounds": 0,
+            "query": query, "conversation_context": conversation_context,
+            "session_id": session_id, "trace": [], "iterations": 0, "param_check_rounds": 0,
             "static_rounds": 0, "completion_rounds": 0,
             "fix_reason": "", "last_error": "",
         }
@@ -498,9 +518,10 @@ class SimulationWorkflow:
         out["elapsed"] = time.time() - start  # type: ignore[index]
         return out
 
-    def stream(self, query: str, **kwargs):
+    def stream(self, query: str, *, conversation_context: str = "", session_id: str = "", **kwargs):
         yield from self.graph.stream(
-            {"query": query, "trace": [], "iterations": 0, "param_check_rounds": 0,
+            {"query": query, "conversation_context": conversation_context,
+             "session_id": session_id, "trace": [], "iterations": 0, "param_check_rounds": 0,
              "static_rounds": 0, "completion_rounds": 0,
              "fix_reason": "", "last_error": ""}, **kwargs
         )

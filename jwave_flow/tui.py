@@ -29,6 +29,7 @@ from .history import (
     load_records,
     make_record,
 )
+from .session_store import SessionStore
 
 try:  # rich 是 TUI 的硬依赖，但只在真正进入 TUI 时才需要
     from rich.console import Console, Group
@@ -352,7 +353,9 @@ class Runner:
         )
 
     # -- 对外 ---------------------------------------------------------- #
-    def run(self, query: str) -> tuple[dict[str, Any], float]:
+    def run(
+        self, query: str, *, conversation_context: str = "", session_id: str = ""
+    ) -> tuple[dict[str, Any], float]:
         """执行一次任务，返回 (最终 state, 耗时秒)。"""
         settings = self.settings
         # TUI 自己画进度，关掉节点里的 stderr 打印（否则会撕裂 Live 界面）
@@ -368,7 +371,16 @@ class Runner:
         def worker() -> None:
             try:
                 with wf:
-                    for chunk in wf.stream(query):
+                    stream_kwargs = {}
+                    # Keep compatibility with lightweight test/custom workflows
+                    # that still expose stream(query) only. A session id alone
+                    # does not affect the model; context is what needs passing.
+                    if conversation_context:
+                        stream_kwargs = {
+                            "conversation_context": conversation_context,
+                            "session_id": session_id,
+                        }
+                    for chunk in wf.stream(query, **stream_kwargs):
                         if self._cancel.is_set():
                             break
                         events.put(("update", chunk))
@@ -464,7 +476,7 @@ PRESETS: tuple[tuple[str, str], ...] = (
 )
 
 COMMANDS = [
-    ":help", ":settings", ":kb", ":history", ":run", ":quit",
+    ":help", ":settings", ":kb", ":history", ":new", ":continue", ":run", ":quit",
     "预设", "示例",
 ]
 
@@ -488,6 +500,8 @@ class TuiApp:
         self.settings = settings
         self.prompter = Prompter(self.console)
         self.hist_file = history_path()
+        self.session_store = SessionStore()
+        self.session: dict[str, Any] | None = None
         self.last_result: dict[str, Any] | None = None
         self.last_query: str = ""
         self.last_elapsed: float = 0.0
@@ -533,7 +547,7 @@ class TuiApp:
                 break
             try:
                 if choice == "1":
-                    self.new_task()
+                    self.new_task(continue_session=self.session is not None)
                 elif choice == "2":
                     self.edit_settings()
                 elif choice == "3":
@@ -587,6 +601,14 @@ class TuiApp:
         if low in (":history", ":hist"):
             self.show_history()
             return self.ask_requirement()
+        if low in (":new", ":new-session"):
+            self.session = None
+            self.last_result = None
+            self.last_query = ""
+            self.console.print("[dim]已新建会话，下一次需求将从空上下文开始。[/dim]")
+            return self.ask_requirement()
+        if low in (":continue", ":c") and self.session and self.last_result:
+            return self.ask_followup()
         if low in (":preset", ":presets", ":example", ":run"):
             text = self.pick_preset()
         elif text.startswith("@"):
@@ -617,8 +639,24 @@ class TuiApp:
         self.console.print(f"[dim]已选：{query}[/dim]")
         return query
 
-    def new_task(self, prefill: str = "") -> None:
-        query = (prefill or "").strip() or self.ask_requirement()
+    def ask_followup(self) -> str:
+        self.console.print(
+            Panel(
+                Text("当前会话将保留上一轮代码、参数和执行结果；输入本轮修改要求即可。\n"
+                     "[dim]:new[/] 新建会话 · [dim]:q[/] 返回"),
+                title="[bold]继续当前会话[/bold]",
+                border_style="cyan",
+                box=panels.box.ROUNDED,
+            )
+        )
+        return self._resolve_command(self.prompter.ask("追问 › ")) or ""
+
+    def new_task(self, prefill: str = "", *, continue_session: bool = False) -> None:
+        if not continue_session and not self.session:
+            self.session = self.session_store.create()
+        query = (prefill or "").strip() or (
+            self.ask_followup() if continue_session else self.ask_requirement()
+        )
         if not query:
             return
         self.console.print()
@@ -637,7 +675,12 @@ class TuiApp:
 
         runner = Runner(self.settings, self.console, workflow_factory=self._factory)
         try:
-            result, elapsed = runner.run(query)
+            context = self._conversation_context()
+            result, elapsed = runner.run(
+                query,
+                conversation_context=context,
+                session_id=str((self.session or {}).get("id", "")),
+            )
         except Abort:
             return
         except KeyboardInterrupt:
@@ -653,11 +696,13 @@ class TuiApp:
             self.console.print(panels.error_state_panel(result, title="运行中断：节点执行失败"))
             self.console.print("[dim]提示：在「运行配置」里按 t 可以直接测一次 API 连通性。[/dim]")
             self._save_history(result, query, elapsed)
+            self._save_session_turn(query, result)
             return
 
         self.last_result, self.last_query, self.last_elapsed = result, query, elapsed
         self.console.print(panels.final_report(result, elapsed=elapsed))
         self._save_history(result, query, elapsed)
+        self._save_session_turn(query, result)
         if self.auto_out:
             self._write_code(self.auto_out)
         self._post_run_menu()
@@ -680,6 +725,30 @@ class TuiApp:
         except OSError as exc:
             self.console.print(f"[yellow]历史写入失败：{exc}[/yellow]")
 
+    def _conversation_context(self) -> str:
+        current = (self.session or {}).get("current") or {}
+        if not current:
+            return ""
+        return (
+            f"当前代码：\n{current.get('code', '')}\n\n"
+            f"当前参数：\n{current.get('params_json', '')}\n\n"
+            f"上一轮需求：{current.get('last_query', '')}\n"
+            f"上一轮执行结果：success={current.get('success')}, "
+            f"verified={current.get('verified')}\n"
+            f"上一轮错误：{current.get('stderr') or current.get('error') or '无'}"
+        )
+
+    def _save_session_turn(self, query: str, result: dict[str, Any]) -> None:
+        if self.session is None:
+            return
+        try:
+            self.session = self.session_store.append_turn(self.session, query, result)
+            self.console.print(
+                f"[dim]当前会话：第 {len(self.session.get('turns') or [])} 轮[/dim]"
+            )
+        except (OSError, ValueError) as exc:
+            self.console.print(f"[yellow]会话保存失败：{exc}[/yellow]")
+
     def _post_run_menu(self) -> None:
         while True:
             choice = self.prompter.choose(
@@ -688,6 +757,8 @@ class TuiApp:
                     ("s", "保存最终代码到文件"),
                     ("v", "用分页器查看完整代码"),
                     ("j", "查看完整 JSON 状态"),
+                    ("c", "继续当前会话"),
+                    ("n", "新建会话"),
                     ("r", "用同一需求重跑"),
                     ("m", "返回主菜单"),
                 ],
@@ -699,6 +770,12 @@ class TuiApp:
                 self._pager("最终代码", (self.last_result or {}).get("text") or "")
             elif choice == "j":
                 self._pager("完整状态 (JSON)", self._json_dump())
+            elif choice == "c":
+                return self.new_task(continue_session=True)
+            elif choice == "n":
+                self.session = None
+                self.last_result = None
+                return self.new_task()
             elif choice == "r":
                 query = self.last_query
                 self.last_result = None
@@ -941,6 +1018,7 @@ class TuiApp:
             "[bold]输入命令（在需求输入框里直接敲）[/bold]\n"
             "  [cyan]:help[/]      显示本页          [cyan]:settings[/] 打开配置编辑器\n"
             "  [cyan]:kb[/]        知识库概览/检索    [cyan]:history[/]  历史记录\n"
+            "  [cyan]:new[/]       新建会话          [cyan]:continue[/]  继续当前会话\n"
             "  [cyan]:preset[/]    用内置示例需求     [cyan]@req.txt[/]  从文件读取需求\n"
             "  [cyan]:q[/]         取消当前输入\n\n"
             "[bold]非交互用法[/bold]\n"

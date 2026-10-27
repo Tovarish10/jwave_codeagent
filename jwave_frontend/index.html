@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>jwave studio</title>
   <link rel="stylesheet" href="/styles.css">
+  <link href="favicon.ico" rel="shortcut icon">
 </head>
 <body>
   <div class="shell">
@@ -21,7 +22,10 @@
       </section>
 
       <section class="composer card">
-        <div class="section-heading"><span>新的仿真任务</span><span class="hint">支持多行需求</span></div>
+        <div class="section-heading">
+          <span id="sessionTitle">当前仿真会话</span>
+          <span class="session-actions"><span id="turnHint" class="hint">尚未开始</span><button id="newSession" class="session-btn">＋ 新建会话</button></span>
+        </div>
         <textarea id="query" rows="4" placeholder="例如：生成一个 128×128 的二维时域声学仿真，声速 1500 m/s，5 MHz 点源"></textarea>
         <div class="composer-footer">
           <div class="presets">

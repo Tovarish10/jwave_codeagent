@@ -11,6 +11,8 @@ def _overwrite(_old, new):  # last-write-wins reducer (explicit, avoids surprise
 class WorkflowState(TypedDict, total=False):
     # --- inputs ---------------------------------------------------------
     query: str
+    session_id: str
+    conversation_context: str
 
     # --- ① 需求分析 ------------------------------------------------------
     requirement: str
