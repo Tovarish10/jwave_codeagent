@@ -174,7 +174,7 @@ def main(argv: list[str] | None = None) -> int:
             f"耗时 {result.get('elapsed', 0):.1f}s",
             file=sys.stderr,
         )
-        # 方案一/二/三：把三道关卡的结论一并交代清楚
+        # 方案一/二/三 + 需求完成度评审：把四道关卡的结论一并交代清楚
         for line in result.get("param_warnings") or []:
             print(f"  {line}", file=sys.stderr)
         if result.get("param_issues"):
@@ -186,6 +186,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  ❌ 静态检查仍有 {len(result['static_issues'])} 处问题", file=sys.stderr)
         for line in result.get("semantic_issues") or []:
             print(f"  ❌ 语义门: {line}", file=sys.stderr)
+        if result.get("completion_feedback"):
+            print(f"  ❌ 需求完成度评审: {result['completion_feedback']}", file=sys.stderr)
         if result.get("verified"):
             print("  ✅ 语义校验通过", file=sys.stderr)
         else:

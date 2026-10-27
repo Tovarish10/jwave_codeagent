@@ -77,6 +77,9 @@ def make_record(
         "iterations": int(result.get("iterations") or 0),
         "success": bool(result.get("success")),
         "verified": bool(result.get("verified")),
+        "requirement_completed": bool(result.get("requirement_completed")),
+        "completion_rounds": int(result.get("completion_rounds") or 0),
+        "completion_feedback": _clip(result.get("completion_feedback"), MAX_STREAM_CHARS),
         "elapsed": round(float(elapsed if elapsed is not None else (result.get("elapsed") or 0.0)), 3),
         "code": _clip(result.get("text") or result.get("code_final") or "", MAX_CODE_CHARS),
         "stdout": _clip(result.get("stdout"), MAX_STREAM_CHARS),
@@ -94,9 +97,14 @@ def make_record(
             "static_ok": not result.get("static_issues"),
             "static_rounds": int(result.get("static_rounds") or 0),
             "static_issues": _as_list(result.get("static_issues")),
-            "semantic_ok": bool(result.get("verified")),
+            "semantic_ok": bool(result.get("semantic_verified", result.get("verified"))),
             "semantic_issues": _as_list(result.get("semantic_issues")),
             "selfcheck": result.get("selfcheck") or {},
+            "completion_ok": bool(result.get("requirement_completed")),
+            "completion_rounds": int(result.get("completion_rounds") or 0),
+            "completion_feedback": _as_list([result.get("completion_feedback")])
+            if result.get("completion_feedback")
+            else [],
         },
     }
     if scalars:

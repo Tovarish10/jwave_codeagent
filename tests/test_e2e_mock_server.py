@@ -30,6 +30,8 @@ FIXED = (
 
 def _reply_for(messages) -> str:
     blob = json.dumps(messages, ensure_ascii=False)
+    if "需求完成度评审器" in blob:
+        return '{"completed": true, "feedback": ""}'
     if "需求分析师" in blob:
         return REQUIREMENT
     if "参数提取器" in blob:
@@ -111,8 +113,11 @@ def test_full_workflow_against_mock_llm(mock_openai, tmp_path, monkeypatch, caps
     assert out["text"] == FIXED.rstrip("\n")
     assert out["requirement"] == REQUIREMENT
     assert out["stdout"].startswith("run 2 ok")
-    # 三道新关卡都真的跑过了（方案一/二/三）
+    # 新增的需求完成度评审节点和原有三道关卡都真的跑过了
     trace = "\n".join(out["trace"])
-    for marker in ["④b 参数预检 通过", "⑤b 静态检查", "⑥b 语义门 通过", "⑦ 代码纠错", "⑧ 输出"]:
+    for marker in [
+        "④b 参数预检 通过", "⑤b 静态检查", "⑥b 语义门 通过",
+        "⑥c 需求完成度评审 通过", "⑦ 代码纠错", "⑧ 输出",
+    ]:
         assert marker in trace
     assert out["selfcheck"]["abs_max"] == 5016.6

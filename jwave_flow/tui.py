@@ -204,6 +204,7 @@ STEP_DEFS: tuple[tuple[str, str], ...] = (
     ("static_check", "⑤b 静态检查"),
     ("run_code", "⑥ 执行"),
     ("semantic_gate", "⑥b 语义数值门"),
+    ("completion_review", "⑥c 需求完成度评审"),
     ("fix_code", "⑦ 代码纠错"),
     ("finalize", "⑧ 输出"),
 )
@@ -244,11 +245,17 @@ def next_node(node: str, state: dict[str, Any], max_iterations: int) -> str | No
             return "semantic_gate"
         return "fix_code"
     if node == "semantic_gate":
-        if state.get("verified"):
-            return "finalize"
+        if state.get("semantic_verified", state.get("verified")):
+            return "completion_review"
         if int(state.get("iterations") or 0) >= max_iterations:
             return "finalize"
         return "fix_code"
+    if node == "completion_review":
+        if state.get("requirement_completed"):
+            return "finalize"
+        if int(state.get("completion_rounds") or 0) >= min(max_iterations, 3):
+            return "finalize"
+        return "generate"
     if node == "fix_code":
         return "static_check"
     return None
@@ -291,12 +298,16 @@ def step_outcome(node: str, state: dict[str, Any]) -> tuple[str, str]:
             return "done", f"通过（{backend} {secs:.2f}s）"
         return "fail", f"报错（第 {state.get('iterations')} 次运行）"
     if node == "semantic_gate":
-        if state.get("verified"):
+        if state.get("semantic_verified", state.get("verified")):
             data = state.get("selfcheck") or {}
             abs_max = data.get("abs_max") if isinstance(data, dict) else None
             extra = f" |p|max={abs_max:g}" if isinstance(abs_max, (int, float)) else ""
             return "done", f"通过{extra}"
         return "fail", f"{len(state.get('semantic_issues') or [])} 项未通过"
+    if node == "completion_review":
+        if state.get("requirement_completed"):
+            return "done", f"通过（第 {state.get('completion_rounds') or 0} 轮）"
+        return "fail", f"未通过（第 {state.get('completion_rounds') or 0} 轮）"
     if node == "fix_code":
         return "retry", f"{len(state.get('code_final') or '')} 字符"
     if node == "finalize":
@@ -499,7 +510,7 @@ class TuiApp:
             "请选择操作：",
             [
                 ("1", "新建仿真任务（自然语言 → 代码 → 执行 → 校验）"),
-                ("2", "运行配置（模型 / 后端 / 三道关）"),
+                ("2", "运行配置（模型 / 后端 / 四道关）"),
                 ("3", "知识库速览"),
                 ("4", "历史记录"),
                 ("5", "使用说明"),
@@ -922,10 +933,11 @@ class TuiApp:
             "[bold]这是什么[/bold]\n"
             "  把自然语言仿真需求变成可运行的 jwave 代码：需求分析 → 知识检索 → 参数提取\n"
             "  → 物理预检 → 生成 → 静态检查 → 执行 → 语义数值门 → 输出。\n\n"
-            "[bold]三道关[/bold]\n"
+            "[bold]四道关[/bold]\n"
             "  方案一 参数物理预检（生成前，纯算术：每波长网格点 / Nyquist / PML …）\n"
             "  方案二 AST 静态检查（执行前，把知识库里「常编造的 API」变成可执行规则）\n"
             "  方案三 语义数值门（执行后，要求打印 __JWAVE_SELFCHECK__ 并校验 |p|max 等）\n\n"
+            "  需求完成度评审（执行后，将问题和实际输出交给 LLM 判断，最多评审 3 轮）\n\n"
             "[bold]输入命令（在需求输入框里直接敲）[/bold]\n"
             "  [cyan]:help[/]      显示本页          [cyan]:settings[/] 打开配置编辑器\n"
             "  [cyan]:kb[/]        知识库概览/检索    [cyan]:history[/]  历史记录\n"

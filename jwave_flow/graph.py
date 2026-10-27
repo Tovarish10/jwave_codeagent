@@ -26,9 +26,16 @@ from .knowledge import build_retriever, render_template_transform
 from .physics import check_params
 from .semantic import RESULT_OUTPUT_CONTRACT, SELFCHECK_CONTRACT, check_semantics
 from .static_check import check_code
-from .llm import GeneratedCode, FixedCode, build_chat_model, invoke_code_llm
+from .llm import (
+    GeneratedCode,
+    FixedCode,
+    build_chat_model,
+    invoke_code_llm,
+    invoke_completion_review,
+)
 from .prompts import (
     code_fix_prompt,
+    completion_review_prompt,
     code_generate_prompt,
     param_extract_prompt,
     requirement_analyst_prompt,
@@ -163,6 +170,16 @@ class SimulationWorkflow:
             if warnings:
                 extra.append("注意以下参数问题：\n" + "\n".join(f"- {w}" for w in warnings))
             messages = list(messages) + [HumanMessage(content="\n\n".join(extra))]
+        completion_feedback = (state.get("completion_feedback") or "").strip()
+        if completion_feedback:
+            messages = list(messages) + [
+                HumanMessage(
+                    content=(
+                        "上一轮需求完成度评审认为答案仍未完成，请针对以下意见修改代码，"
+                        "并确保输出直接覆盖用户问题：\n- " + completion_feedback
+                    )
+                )
+            ]
         messages = list(messages) + [
             HumanMessage(content=RESULT_OUTPUT_CONTRACT),
             HumanMessage(content=SELFCHECK_CONTRACT),
@@ -176,7 +193,12 @@ class SimulationWorkflow:
             "trace": self._log(
                 state,
                 f"⑤ 代码生成 {len(code)} 字符"
-                + ("（已注入参数约束）" if (state.get("param_constraints") or state.get("param_warnings")) else ""),
+                + (
+                    "（已注入参数约束）"
+                    if (state.get("param_constraints") or state.get("param_warnings"))
+                    else ""
+                )
+                + ("（已注入需求评审意见）" if completion_feedback else ""),
             ),
         }
 
@@ -237,7 +259,11 @@ class SimulationWorkflow:
     def n_semantic_gate(self, state: WorkflowState) -> dict:
         """⑥b 语义数值门（方案三）——解析自检行并做确定性判据。"""
         if not self.settings.semantic_check_enabled:
-            return {"verified": True, "trace": self._log(state, "⑥b 语义门 已关闭")}
+            return {
+                "semantic_verified": True,
+                "verified": True,
+                "trace": self._log(state, "⑥b 语义门 已关闭"),
+            }
 
         # 运行本身就没通过时，不要谎报“缺少自检行”，如实反映执行失败
         if not state.get("success"):
@@ -247,6 +273,7 @@ class SimulationWorkflow:
             return {
                 "semantic_issues": issues,
                 "selfcheck": {},
+                "semantic_verified": False,
                 "verified": False,
                 "fix_reason": raw or "执行失败且无输出",
                 "trace": self._log(state, f"⑥b 语义门 未通过（运行失败：{tail or '无输出'}）"),
@@ -259,6 +286,7 @@ class SimulationWorkflow:
         out: dict = {
             "semantic_issues": issues,
             "selfcheck": report.data,
+            "semantic_verified": report.ok,
             "verified": report.ok,
         }
         if issues:
@@ -286,6 +314,65 @@ class SimulationWorkflow:
             return "finalize"
         return "fix"
 
+    def n_completion_review(self, state: WorkflowState) -> dict:
+        """⑥c 需求完成度评审——让 LLM 对问题与实际答案作结构化判断。"""
+        answer_parts = [
+            str(state.get("stdout") or "").strip(),
+            "生成文件：" + ", ".join(str(p) for p in (state.get("outputs") or [])),
+        ]
+        answer = "\n".join(part for part in answer_parts if part)
+        evidence = "\n".join(
+            [
+                f"语义数值门：{'通过' if state.get('semantic_verified') else '未通过'}",
+                f"自检数据：{state.get('selfcheck') or {}}",
+                "实际生成文件：" + ", ".join(str(p) for p in (state.get("new_files") or [])),
+                "已提取参数：" + str(state.get("params_json") or ""),
+            ]
+        )
+        messages = completion_review_prompt().format_messages(
+            query=state.get("query", ""),
+            requirement=state.get("requirement", ""),
+            answer=answer[:20000],
+            evidence=evidence[:12000],
+        )
+        review = invoke_completion_review(self.analyst_llm, messages)
+        rounds = int(state.get("completion_rounds", 0)) + 1
+        missing = [item.strip() for item in review.missing_requirements if item.strip()]
+        feedback = review.feedback.strip()
+        if review.completed:
+            missing = []
+            feedback = ""
+        elif not missing:
+            # Backward-compatible fallback for providers that still return the
+            # old {completed, feedback} shape.
+            if feedback:
+                missing = [feedback]
+            else:
+                missing = ["评审未提供明确缺失项，无法据此修改答案"]
+        report = {"completed": review.completed, "feedback": feedback}
+        report["missing_requirements"] = missing
+        note = (
+            "⑥c 需求完成度评审 通过"
+            if review.completed
+            else f"⑥c 需求完成度评审 未通过（第 {rounds} 轮）"
+        )
+        return {
+            "requirement_completed": review.completed,
+            "completion_review": report,
+            "completion_feedback": feedback,
+            "completion_rounds": rounds,
+            "trace": self._log(state, note),
+        }
+
+    def _route_after_completion_review(self, state: WorkflowState) -> str:
+        if state.get("requirement_completed"):
+            return "finalize"
+        if int(state.get("completion_rounds", 0)) >= min(
+            self.settings.completion_max_rounds, 3
+        ):
+            return "finalize"
+        return "generate"
+
     def n_fix(self, state: WorkflowState) -> dict:
         reason = state.get("fix_reason") or state.get("stderr", "")
         messages = code_fix_prompt().format_messages(
@@ -304,14 +391,40 @@ class SimulationWorkflow:
         }
 
     def n_finalize(self, state: WorkflowState) -> dict:
-        verified = bool(state.get("verified"))
-        note = "⑧ 输出" + ("" if verified else "（未通过语义校验 ⚠️）")
+        semantic_verified = bool(state.get("semantic_verified", state.get("verified")))
+        requirement_completed = bool(state.get("requirement_completed", semantic_verified))
+        verified = semantic_verified and requirement_completed
+        text = state.get("code_final", "")
+        marked = False
+        if semantic_verified and not requirement_completed:
+            feedback = (state.get("completion_feedback") or "需求完成度仍无法确认").strip()
+            text = (
+                "# [需求未完成：需求完成度评审已达到最多 3 次]\n"
+                + "\n".join(f"# 评审意见：{line}" for line in feedback.splitlines())
+                + "\n"
+                + text
+            )
+            marked = True
+        if not verified:
+            failure_note = (
+                "未通过语义校验 ⚠️"
+                if not semantic_verified
+                else "需求完成度评审未通过 ⚠️"
+            )
+            note = f"⑧ 输出（{failure_note}）"
+        else:
+            note = "⑧ 输出"
         if self.settings.verbose and not verified:
             print(
-                "  ⚠️ 最终产物未通过语义数值门，请人工确认（可用 --json 查看 semantic_issues）",
+                "  ⚠️ 最终产物未通过校验，请人工确认（可用 --json 查看详细原因）",
                 file=sys.stderr, flush=True,
             )
-        return {"text": state.get("code_final", ""), "verified": verified, "trace": self._log(state, note)}
+        return {
+            "text": text,
+            "verified": verified,
+            "answer_marked": marked,
+            "trace": self._log(state, note),
+        }
 
     # -- routing ------------------------------------------------------- #
     def _route_after_run(self, state: WorkflowState) -> str:
@@ -334,6 +447,7 @@ class SimulationWorkflow:
         g.add_node("static_check", self.n_static_check)
         g.add_node("run_code", self.n_run)
         g.add_node("semantic_gate", self.n_semantic_gate)
+        g.add_node("completion_review", self.n_completion_review)
         g.add_node("fix_code", self.n_fix)
         g.add_node("finalize", self.n_finalize)
 
@@ -356,8 +470,17 @@ class SimulationWorkflow:
         )
         g.add_conditional_edges(
             "semantic_gate",
-            self._route_after_semantic,
-            {"fix": "fix_code", "finalize": "finalize"},
+            lambda state: (
+                "review"
+                if state.get("verified")
+                else self._route_after_semantic(state)
+            ),
+            {"fix": "fix_code", "review": "completion_review", "finalize": "finalize"},
+        )
+        g.add_conditional_edges(
+            "completion_review",
+            self._route_after_completion_review,
+            {"generate": "generate", "finalize": "finalize"},
         )
         g.add_edge("fix_code", "static_check")
         g.add_edge("finalize", END)
@@ -368,7 +491,8 @@ class SimulationWorkflow:
         start = time.time()
         state: WorkflowState = {
             "query": query, "trace": [], "iterations": 0, "param_check_rounds": 0,
-            "static_rounds": 0, "fix_reason": "", "last_error": "",
+            "static_rounds": 0, "completion_rounds": 0,
+            "fix_reason": "", "last_error": "",
         }
         out = self.graph.invoke(state, **kwargs)
         out["elapsed"] = time.time() - start  # type: ignore[index]
@@ -376,7 +500,9 @@ class SimulationWorkflow:
 
     def stream(self, query: str, **kwargs):
         yield from self.graph.stream(
-            {"query": query, "trace": [], "iterations": 0, "param_check_rounds": 0, "static_rounds": 0, "fix_reason": "", "last_error": ""}, **kwargs
+            {"query": query, "trace": [], "iterations": 0, "param_check_rounds": 0,
+             "static_rounds": 0, "completion_rounds": 0,
+             "fix_reason": "", "last_error": ""}, **kwargs
         )
 
     def close(self) -> None:

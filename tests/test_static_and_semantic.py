@@ -116,7 +116,7 @@ def test_semantic_flags_missing_selfcheck():
 
 def test_semantic_rejects_marker_only_output():
     r = check_semantics(
-        _line({"finite": True, "abs_max": 1.0, "shape": [4]}),
+        f"{MARKER}{json.dumps({'finite': True, 'abs_max': 1.0, 'shape': [4]})}\n",
         _settings(),
     )
     assert not r.ok

@@ -143,7 +143,7 @@ def banner(version: str, settings: Settings | None = None) -> Panel:
     title.append("  ·  LangChain / LangGraph", style="dim")
     body = Text.from_markup(
         "[dim]自然语言需求 → 需求分析 → 知识检索 → 参数提取 → 代码生成 → 执行 → 纠错 → 语义校验[/]\n"
-        f"[dim]三道关：[/][green]方案一 参数物理预检[/][dim] · [/][green]方案二 AST 静态检查[/][dim] · [/][green]方案三 语义数值门[/]"
+        f"[dim]四道关：[/][green]方案一 参数物理预检[/][dim] · [/][green]方案二 AST 静态检查[/][dim] · [/][green]方案三 语义数值门[/][dim] · [/][green]需求完成度评审[/]"
     )
     group = Group(title, body)
     return Panel(group, box=box.ROUNDED, border_style="cyan", subtitle=f"v{version}", subtitle_align="right")
@@ -168,12 +168,13 @@ def config_table(settings: Settings, *, show_secret: bool = False) -> Table:
         ("执行后端", settings.executor_backend, f"超时 {settings.exec_timeout:g}s"),
         ("最大迭代", str(settings.max_iterations), "对应 Dify loop_count"),
         (
-            "三道关",
+            "四道关",
             " ".join(
                 [
                     "参数" + ("✅" if settings.param_check_enabled else "⛔"),
                     "静态" + ("✅" if settings.static_check_enabled else "⛔"),
                     "语义" + ("✅" if settings.semantic_check_enabled else "⛔"),
+                    f"评审≤{min(settings.completion_max_rounds, 3)}",
                 ]
             ),
             "方案一 / 二 / 三",
@@ -368,8 +369,21 @@ def gates_table(result: dict[str, Any]) -> Table:
     )
     table.add_row(
         "方案三 语义数值门",
-        badge(bool(result.get("verified")), ok_text="通过 ✅", bad_text="未通过 ❌"),
+        badge(
+            bool(result.get("semantic_verified", result.get("verified"))),
+            ok_text="通过 ✅",
+            bad_text="未通过 ❌",
+        ),
         f"{len(semantic_issues)} 项 · 自检" + ("存在" if result.get("selfcheck") else "缺失"),
+    )
+    table.add_row(
+        "需求完成度评审",
+        badge(
+            bool(result.get("requirement_completed")),
+            ok_text="通过 ✅",
+            bad_text="未通过 ❌",
+        ),
+        f"第 {result.get('completion_rounds') or 0}/3 轮",
     )
     return table
 
@@ -513,13 +527,20 @@ def final_report(result: dict[str, Any], *, elapsed: float | None = None, code_t
     """跑完之后的一屏总览。"""
     return Group(
         result_header(result, elapsed),
-        Panel(gates_table(result), title="[bold]三道关结论[/bold]", border_style="magenta", box=box.ROUNDED),
+        Panel(gates_table(result), title="[bold]四道关结论[/bold]", border_style="magenta", box=box.ROUNDED),
         requirement_panel(result),
         kb_stats_panel(result),
         params_panel(result),
         issues_panel("方案二 静态检查问题", _as_list(result.get("static_issues")), empty="无问题 ✅"),
         selfcheck_panel(result),
         issues_panel("方案三 语义数值门问题", _as_list(result.get("semantic_issues")), empty="无问题 ✅"),
+        issues_panel(
+            "需求完成度评审意见",
+            _as_list([result.get("completion_feedback")])
+            if result.get("completion_feedback")
+            else [],
+            empty="无问题 ✅",
+        ),
         execution_panel(result),
         code_panel(result.get("text") or result.get("code_final") or "", title=code_title),
     )

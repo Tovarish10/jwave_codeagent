@@ -1,5 +1,5 @@
-const stepNames = { analyze: "需求分析", retrieve: "知识检索", template: "模板转换", extract: "参数提取", param_check: "参数预检", generate: "代码生成", static_check: "静态检查", run_code: "执行仿真", semantic_gate: "语义校验", fix_code: "代码纠错", finalize: "输出" };
-const stepOrder = ["analyze", "retrieve", "template", "extract", "param_check", "generate", "static_check", "run_code", "semantic_gate", "fix_code", "finalize"];
+const stepNames = { analyze: "需求分析", retrieve: "知识检索", template: "模板转换", extract: "参数提取", param_check: "参数预检", generate: "代码生成", static_check: "静态检查", run_code: "执行仿真", semantic_gate: "语义校验", completion_review: "需求完成度评审", fix_code: "代码纠错", finalize: "输出" };
+const stepOrder = ["analyze", "retrieve", "template", "extract", "param_check", "generate", "static_check", "run_code", "semantic_gate", "completion_review", "fix_code", "finalize"];
 const $ = id => document.getElementById(id);
 let latest = {};
 
@@ -23,7 +23,8 @@ function renderGates(state) {
   const gates = [
     ["参数物理预检", state.param_check_ok, state.param_issues?.length || 0],
     ["AST 静态检查", !state.static_issues?.length, state.static_issues?.length || 0],
-    ["语义数值门", state.verified, state.semantic_issues?.length || 0],
+    ["语义数值门", state.semantic_verified ?? state.verified, state.semantic_issues?.length || 0],
+    ["需求完成度评审", state.requirement_completed, state.completion_feedback ? 1 : 0],
   ];
   $("gates").innerHTML = gates.map(([name, ok, count]) => `<div class="gate ${ok ? "pass" : "fail"}">${name}<b>${ok ? "通过 ✓" : `${count} 项问题`}</b></div>`).join("");
   const check = state.selfcheck || {};

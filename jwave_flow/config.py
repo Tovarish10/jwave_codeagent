@@ -160,6 +160,9 @@ class Settings:
     # |p|max 必须 <= max_abs_max（否则视为数值发散）
     max_abs_max: float = 1e12
 
+    # --- 需求完成度评审 -----------------------------------------------
+    completion_max_rounds: int = 3
+
     # --- Workflow -------------------------------------------------------
     max_iterations: int = 10          # mirrors Dify loop_count
     verbose: bool = True
@@ -194,6 +197,7 @@ class Settings:
             param_check_max_rounds=int(_env("PARAM_CHECK_MAX_ROUNDS", "2")),
             default_cfl=float(_env("DEFAULT_CFL", "0.3")),
             max_iterations=int(_env("LOOP_MAX_ITERATIONS", "10")),
+            completion_max_rounds=min(int(_env("COMPLETION_MAX_ROUNDS", "3")), 3),
             verbose=(_env("VERBOSE", "1") not in ("0", "false", "False")),
         )
         kwargs.update(overrides)

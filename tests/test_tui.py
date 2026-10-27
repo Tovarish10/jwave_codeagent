@@ -89,7 +89,11 @@ def test_next_node_follows_graph_routes():
     assert next_node("run_code", {"success": False, "iterations": 1}, 10) == "fix_code"
     assert next_node("run_code", {"success": True}, 10) == "semantic_gate"
     # 语义门 -> 输出 / 纠错
-    assert next_node("semantic_gate", {"verified": True}, 10) == "finalize"
+    assert next_node("semantic_gate", {"verified": True}, 10) == "completion_review"
+    assert next_node("completion_review", {"requirement_completed": True}, 10) == "finalize"
+    assert next_node(
+        "completion_review", {"requirement_completed": False, "completion_rounds": 1}, 10
+    ) == "generate"
     assert next_node("semantic_gate", {"verified": False, "iterations": 1}, 10) == "fix_code"
     assert next_node("fix_code", {}, 10) == "static_check"
     assert next_node("finalize", {}, 10) is None
@@ -130,7 +134,7 @@ def test_panels_render_without_error():
     console.print(panels.kb_stats_panel(FAKE_RESULT))
     console.print(panels.final_report(FAKE_RESULT, elapsed=9.9))
     text = console.export_text()
-    assert "三道关" in text or "方案一" in text
+    assert "四道关" in text or "方案一" in text
     assert "最终代码" in text
     assert "运行成功 ✅" in text
 
@@ -245,6 +249,8 @@ CHUNKS = [
                   "execution_time": 0.1, "backend": "subprocess", "trace": ["⑥ 执行 通过 ✅"]}},
     {"semantic_gate": {"verified": True, "semantic_issues": [], "selfcheck": {"abs_max": 1.0},
                        "trace": ["⑥b 语义门 通过"]}},
+    {"completion_review": {"requirement_completed": True, "completion_rounds": 1,
+                           "completion_feedback": "", "trace": ["⑥c 需求完成度评审 通过"]}},
     {"finalize": {"text": "print(1)", "verified": True, "trace": ["⑧ 输出"]}},
 ]
 
@@ -372,7 +378,7 @@ def test_app_runs_a_task_end_to_end_offline(tmp_path):
     assert records[0]["verified"] is True
 
     out = console.export_text()
-    assert "三道关" in out and "最终代码" in out
+    assert "四道关" in out and "最终代码" in out
 
 
 def test_app_with_initial_query_short_circuits_menu(tmp_path):

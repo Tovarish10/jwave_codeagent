@@ -41,7 +41,13 @@ class WorkflowState(TypedDict, total=False):
     # --- ⑥b 语义数值门（方案三，非 Dify 原生节点）-----------------------
     semantic_issues: Annotated[list[str], _overwrite]
     selfcheck: Annotated[dict, _overwrite]
+    semantic_verified: bool
     verified: bool
+    requirement_completed: bool
+    completion_review: Annotated[dict, _overwrite]
+    completion_feedback: str
+    completion_rounds: int
+    answer_marked: bool
 
     # --- ⑥ 循环（执行 → 纠错） -------------------------------------------
     code_final: str

@@ -63,11 +63,12 @@ def _prompt_text(prompt) -> str:
 class FakeLLM:
     """Returns canned answers keyed off the prompt, like the real nodes would."""
 
-    def __init__(self, gen_code=BUGGY, fixed=FIXED, params=GOOD_PARAMS):
+    def __init__(self, gen_code=BUGGY, fixed=FIXED, params=GOOD_PARAMS, reviews=None):
         self.gen_code = gen_code
         self.fixed = fixed
         # a list is consumed in order (used to simulate a first, bad extraction)
         self.params = list(params) if isinstance(params, list) else [params]
+        self.reviews = list(reviews or ['{"completed": true, "feedback": ""}'])
         self.seen: list[str] = []
 
     def invoke(self, prompt):
@@ -77,6 +78,8 @@ class FakeLLM:
             return _Msg("需求描述：一个二维时域声学仿真。")
         if "参数提取器" in text:
             return _Msg(self.params.pop(0) if len(self.params) > 1 else self.params[0])
+        if "需求完成度评审器" in text:
+            return _Msg(self.reviews.pop(0) if len(self.reviews) > 1 else self.reviews[0])
         if "代码生成器" in text:
             return _Msg(self.gen_code)
         if "代码改正器" in text:
@@ -174,6 +177,37 @@ def test_semantic_gate_rejects_all_zero_field():
         out = wf.invoke("做个二维时域仿真")
     assert out["verified"] is False
     assert any("几乎全零" in i for i in out["semantic_issues"])
+
+
+def test_completion_review_returns_feedback_to_generation():
+    settings = _settings(max_iterations=10)
+    llm = FakeLLM(reviews=[
+        '{"completed": false, "feedback": "请输出压力场最大值"}',
+        '{"completed": true, "feedback": ""}',
+    ])
+    with SimulationWorkflow(settings, analyst_llm=llm, coder_llm=llm) as wf:
+        out = wf.invoke("做个二维时域仿真并输出压力场最大值")
+
+    assert out["requirement_completed"] is True
+    assert out["completion_rounds"] == 2
+    assert any("请输出压力场最大值" in p for p in llm.seen)
+    assert "⑥c 需求完成度评审 未通过" in "\n".join(out["trace"])
+
+
+def test_completion_review_marks_answer_after_three_failures():
+    settings = _settings(max_iterations=10)
+    llm = FakeLLM(reviews=[
+        '{"completed": false, "feedback": "缺少结果"}',
+        '{"completed": false, "feedback": "仍缺少结果"}',
+        '{"completed": false, "feedback": "依然缺少结果"}',
+    ])
+    with SimulationWorkflow(settings, analyst_llm=llm, coder_llm=llm) as wf:
+        out = wf.invoke("做个二维时域仿真")
+
+    assert out["completion_rounds"] == 3
+    assert out["requirement_completed"] is False
+    assert out["answer_marked"] is True
+    assert out["text"].startswith("# [需求未完成")
 
 
 class SimpleWorkflowFactory(SimulationWorkflow):

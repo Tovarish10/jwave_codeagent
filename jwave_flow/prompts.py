@@ -18,6 +18,34 @@ CODE_GENERATE_USER = '你是 jwave Python 代码生成器。\n\xa0\n任务：\n\
 
 CODE_FIX_USER = '你是一个代码改正器。\n\n你会收到三段输入：\n- 需要改正的代码：{code_final}\n- 可用辅助信息：{context}\n- 代码的报错：{stderr}\n\n你的唯一任务是：修复代码错误，并返回修复后的完整代码。\n\n# 最重要规则：\n**输出必须是代码格式，要求能完成运行**\n\n# 严格规则：\n1. 只输出最终修复后的完整代码。\n2. 不输出任何解释、分析、注释说明、步骤、标题、前后缀文本。\n3. 不使用 Markdown 代码块包裹（不要 ```）。\n4. 保持原有功能不变，仅做修复错误所必需的最小改动。\n5. 必须结合“可用辅助信息”进行修复，不得臆造不存在的库、函数、参数。\n6. 如果有多种修复方式，选择最稳健且兼容原逻辑的一种。\n7. 输出必须是可直接替换原代码的版本。\n8. 保留并修正用户结果输出：必须 print 实际结果；需要图像时必须用 matplotlib.savefig 保存到 outputs/，不能把 __JWAVE_SELFCHECK__ 自检行当作唯一输出。'  # node 1784023398114 (代码纠错)
 
+COMPLETION_REVIEW_USER = '''你是仿真需求完成度评审器。你只检查用户明确提出的交付物，不做代码质量审查，不提出额外优化建议。
+
+用户问题：
+{query}
+
+需求分析：
+{requirement}
+
+程序答案（用户可读输出）：
+{answer}
+
+可用证据：
+{evidence}
+
+请严格输出 JSON，不要输出 Markdown 或解释：
+{{"completed": true 或 false, "missing_requirements": ["明确缺失的用户交付物"], "feedback": "只针对明确缺失项给生成节点的具体修改意见；完成时为空字符串"}}
+
+判定规则：
+1. 先从用户问题中列出明确要求的交付物，再逐项寻找证据；不要扩大或猜测用户需求。
+2. 只有某个明确要求的交付物没有出现在用户可读输出或生成文件中，才允许 completed=false。
+3. stdout、输出文件、图像路径都算用户可见证据；已生成的文件无需再次打印文件内容。
+4. 语义数值门已通过是结果有效性的辅助证据，但不能替代缺失的明确交付物。
+5. 以下情况必须 completed=true：格式/措辞偏好、未要求的额外信息、可选优化、代码风格、
+   调试信息、自检字段、无法证明但也没有明确缺失证据的内容。
+6. 如果没有明确缺失项，必须 completed=true，missing_requirements=[]，feedback=""。
+7. completed=false 时，missing_requirements 至少包含一项明确缺失的用户交付物，
+   feedback 只能针对这些条目，不能提出新的要求。'''
+
 TEMPLATE_TRANSFORM = '{% for item in arg1 %}\r\n{{ item.content }}\r\n{% endfor %}\r\n'  # node 1783990989034 (模板转换)
 
 
@@ -45,3 +73,8 @@ def code_generate_prompt() -> ChatPromptTemplate:
 def code_fix_prompt() -> ChatPromptTemplate:
     """⑦ 代码纠错 — repair a script given its stderr."""
     return ChatPromptTemplate.from_messages([("human", CODE_FIX_USER)])
+
+
+def completion_review_prompt() -> ChatPromptTemplate:
+    """⑥c 需求完成度评审 — compare the question with the executed answer."""
+    return ChatPromptTemplate.from_messages([("human", COMPLETION_REVIEW_USER)])
