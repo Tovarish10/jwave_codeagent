@@ -1,8 +1,7 @@
-"""All LLM prompts, extracted **verbatim** from the Dify workflow
-``dify_workflow/仿真.yml`` (only the ``{{#node.var#}}`` references were
-rewritten into Python ``str.format`` placeholders).
+"""All LLM prompts used by the workflow.
 
-Do not hand-edit: regenerate/verify with ``tests/test_prompts_match_dify.py``.
+The prompts are maintained as Python constants so the runtime has no
+dependency on an external workflow export.
 """
 from __future__ import annotations
 

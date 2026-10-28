@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .config import Settings
 from .graph import SimulationWorkflow
+from .memory import MemoryStore
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -39,6 +40,10 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--tui", action="store_true", help="强制使用交互式界面（可视化流水线）")
     p.add_argument("--no-tui", action="store_true", help="禁用交互式界面（无需求时直接报错）")
+    p.add_argument(
+        "--learn", action="store_true",
+        help="明确授权：任务完成后生成脱敏项目经验，并用于后续检索",
+    )
     return p
 
 
@@ -149,7 +154,12 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         with SimulationWorkflow(settings) as wf:
-            result = wf.invoke(query)
+            memory = MemoryStore() if args.learn else None
+            context = memory.context(query) if memory else ""
+            result = wf.invoke(query, conversation_context=context)
+            if memory:
+                card = memory.record(query, result)
+                result["memory"] = {"saved": True, "id": card["id"]}
     except KeyboardInterrupt:
         print("已中断", file=sys.stderr)
         return 130

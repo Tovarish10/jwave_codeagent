@@ -32,3 +32,9 @@ def test_session_store_keeps_current_context(tmp_path):
     assert loaded["current"]["params_json"] == '{"nx": 128}'
     assert loaded["turns"][0]["index"] == 1
     assert store.list()[0]["turn_count"] == 1
+
+
+def test_session_store_persists_memory_consent(tmp_path):
+    session = SessionStore(tmp_path).create("授权会话", collect_memory=True)
+    loaded = SessionStore(tmp_path).get(session["id"])
+    assert loaded["consent"]["collect_memory"] is True

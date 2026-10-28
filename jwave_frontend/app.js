@@ -15,7 +15,7 @@ async function ensureSession() {
       return;
     }
   }
-  const response = await fetch("/api/sessions", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({})});
+  const response = await fetch("/api/sessions", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({collect_memory: false})});
   const data = await response.json();
   sessionId = data.session.id; turnCount = 0;
   localStorage.setItem("jwave.sessionId", sessionId);
@@ -92,7 +92,7 @@ async function run() {
   $("code").textContent = "工作流完成输出后，生成的 jwave 代码会显示在这里。";
   $("resultStatus").className = "status neutral"; $("resultStatus").textContent = "运行中";
   try {
-    const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/run`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({query})});
+    const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/run`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({query, collect_memory: $("collectMemory").checked})});
     if (!response.ok || !response.body) throw new Error("无法连接到工作流服务");
     const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = "";
     while (true) {
@@ -124,6 +124,11 @@ function handleEvent(event) {
   if (event.type === "session") {
     turnCount = (event.session?.turns || []).length;
     renderSession(event.session);
+    return;
+  }
+  if (event.type === "memory") {
+    addActivity("已生成脱敏项目经验卡片");
+    latest.memory = event.memory;
     return;
   }
   if (event.type === "error") addActivity(`错误：${event.error}`);

@@ -1,7 +1,6 @@
 # 知识库修改记录 (kb/jwave_kb_organized.md)
 
-原文件已备份为 **`kb/jwave_kb_organized.md.bak`**（与用户原始
-`/home/Halouen/workspace/jwave_kb_organized.md` 逐字节相同）。
+原文件已备份为 **`kb/jwave_kb_organized.md.bak`**（由修复脚本在项目内生成）。
 
 修改由 `tools/fix_kb.py` 生成，**可完全回滚**：
 

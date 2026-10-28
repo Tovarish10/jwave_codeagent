@@ -12,13 +12,20 @@
 ./jwave_frontend/start.sh
 ```
 
-或者显式使用 `jw` 环境：
+或者显式使用当前 Python 解释器：
 
 ```bash
-conda run -n jw python jwave_frontend/server.py
+python jwave_frontend/server.py
 ```
 
 然后打开 <http://127.0.0.1:8765>。
+
+`start.sh` 不依赖 Conda 或固定的环境名称。默认使用当前 shell 中的
+`EXEC_PYTHON`、`PYTHON` 或 `python3`，也可以显式指定解释器：
+
+```bash
+JWAVE_PYTHON=/path/to/python ./jwave_frontend/start.sh
+```
 
 运行前仍需按内核项目的说明配置仓库根目录下的 `.env`，至少提供
 `OPENAI_API_KEY` 或 `DEEPSEEK_API_KEY`。API Key 只由 Python 内核读取，不会返回给

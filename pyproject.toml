@@ -22,7 +22,7 @@ dependencies = [
 [project.optional-dependencies]
 runtime = ["numpy>=1.26", "jwave>=0.2.1", "jax>=0.4", "jaxlib>=0.4", "jaxdf>=0.2.8", "matplotlib>=3.8"]
 executors = ["ipykernel>=6", "mcp>=1.0", "python-mcp-server>=1.0"]
-dev = ["pytest>=8", "pyyaml>=6"]
+dev = ["pytest>=8"]
 
 [project.scripts]
 jwave-flow = "jwave_flow.cli:main"

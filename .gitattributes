@@ -1,5 +1,3 @@
-# Store files byte-for-byte: kb/jwave_kb_organized.md.bak must stay identical to
-# the user's original knowledge base (tests/test_kb_is_patched.py asserts it), and
-# prompts.py is verified against the exact bytes of dify_workflow/仿真.yml.
+# Store the knowledge-base backup byte-for-byte.
 * -text
 *.png binary

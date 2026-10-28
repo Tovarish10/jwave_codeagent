@@ -28,13 +28,14 @@ class SessionStore:
             raise ValueError("无效的 session_id")
         return self.directory / f"{session_id}.json"
 
-    def create(self, title: str = "未命名仿真") -> dict[str, Any]:
+    def create(self, title: str = "未命名仿真", *, collect_memory: bool = False) -> dict[str, Any]:
         now = time.time()
         session = {
             "id": f"sess_{time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}",
             "title": _clip(title.strip() or "未命名仿真", 100),
             "created_at": now,
             "updated_at": now,
+            "consent": {"collect_memory": bool(collect_memory)},
             "turns": [],
             "current": {},
         }

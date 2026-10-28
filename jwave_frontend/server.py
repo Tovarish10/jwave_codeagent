@@ -1,8 +1,9 @@
 """Small local web adapter for jwave_codeagent.
 
-Run this module from the repository's ``jw`` conda environment.  It keeps the
-web layer deliberately thin: the agent remains the source of truth and the
-browser receives newline-delimited JSON updates from ``SimulationWorkflow``.
+Run this module with any Python >= 3.10 environment that has the project
+dependencies installed.  It keeps the web layer deliberately thin: the agent
+remains the source of truth and the browser receives newline-delimited JSON
+updates from ``SimulationWorkflow``.
 """
 from __future__ import annotations
 
@@ -29,6 +30,7 @@ from jwave_flow.config import Settings  # noqa: E402
 from jwave_flow.graph import SimulationWorkflow  # noqa: E402
 from jwave_flow.history import append_record, load_records, make_record  # noqa: E402
 from jwave_flow.session_store import SessionStore  # noqa: E402
+from jwave_flow.memory import MemoryStore  # noqa: E402
 
 
 def _json_default(value: Any) -> str:
@@ -139,10 +141,24 @@ class WebHandler(SimpleHTTPRequestHandler):
             try:
                 request = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))) or b"{}")
                 title = str(request.get("title", "")).strip()
+                collect_memory = bool(request.get("collect_memory", False))
             except (ValueError, json.JSONDecodeError) as exc:
                 _send_json(self, {"error": f"请求格式错误：{exc}"}, HTTPStatus.BAD_REQUEST)
                 return
-            _send_json(self, {"session": SessionStore().create(title)})
+            _send_json(self, {"session": SessionStore().create(title, collect_memory=collect_memory)})
+            return
+        if path == "/api/memories/feedback":
+            try:
+                request = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))) or b"{}")
+                memory_id = str(request.get("memory_id", "")).strip()
+                helpful = bool(request.get("helpful"))
+            except (ValueError, json.JSONDecodeError) as exc:
+                _send_json(self, {"error": f"请求格式错误：{exc}"}, HTTPStatus.BAD_REQUEST)
+                return
+            if not memory_id or not MemoryStore().feedback(memory_id, helpful):
+                _send_json(self, {"error": "经验不存在"}, HTTPStatus.NOT_FOUND)
+            else:
+                _send_json(self, {"ok": True})
             return
         path_session_id = _session_id_from_run_path(path)
         if not (path == "/api/run" or path_session_id):
@@ -178,6 +194,9 @@ class WebHandler(SimpleHTTPRequestHandler):
         elif path == "/api/run":
             session = store.create(query)
             session_id = session["id"]
+        if session is not None and "collect_memory" in request:
+            session.setdefault("consent", {})["collect_memory"] = bool(request["collect_memory"])
+            store.save(session)
 
         current = (session or {}).get("current") or {}
         context = ""
@@ -201,6 +220,12 @@ class WebHandler(SimpleHTTPRequestHandler):
               "turn_index": len((session or {}).get("turns") or []) + 1})
         try:
             settings = Settings.from_env()
+            collect_memory = bool((session or {}).get("consent", {}).get("collect_memory"))
+            memory = MemoryStore() if collect_memory else None
+            if memory:
+                memory_context = memory.context(query)
+                if memory_context:
+                    context = f"{context}\n\n已授权项目经验（仅作参考）：\n{memory_context}".strip()
             emit({"type": "config", "settings": _safe_settings(settings)})
             with SimulationWorkflow(settings) as workflow:
                 for update in workflow.stream(query, conversation_context=context, session_id=session_id):
@@ -217,6 +242,10 @@ class WebHandler(SimpleHTTPRequestHandler):
             record = make_record(state, query, settings, elapsed=state["elapsed"])
             record["session_id"] = session_id
             append_record(record)
+            if memory:
+                card = memory.record(query, state, session_id)
+                state["memory"] = {"saved": True, "id": card["id"]}
+                emit({"type": "memory", "memory": {"id": card["id"], "saved": True}})
             emit({"type": "session", "session": session})
         except Exception as exc:
             message = str(exc) or exc.__class__.__name__

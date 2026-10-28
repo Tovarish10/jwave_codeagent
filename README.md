@@ -28,7 +28,8 @@
 ## 安装
 
 ```bash
-conda activate jw                          # 请替换为本机的任意 Python >= 3.10 环境
+python -m venv .venv                       # 也可以使用其它 Python >= 3.10 环境
+source .venv/bin/activate                   # Windows 使用 .venv\Scripts\activate
 pip install -r requirements.txt            # 编排层与 CLI/TUI
 pip install -r requirements-runtime.txt    # jwave、JAX、matplotlib 等运行时
 ```
@@ -118,6 +119,20 @@ python -m jwave_flow --tui
 才会清空上下文。每次运行追加一条记录到 `run/history.jsonl`，会话状态保存到
 `run/sessions/`。
 
+若希望智能体积累当前项目的可复用经验，命令行需显式传入 `--learn`；网页端需勾选
+“允许收集本次结果并蒸馏为脱敏项目经验”。默认不会收集。任务完成后只写入经过脱敏的
+经验卡片到 `run/memories.jsonl`，后续任务会检索相关卡片作为参考，而不会自动修改模型。
+卡片不是只有问题 ID，而是包含 `problem`（问题和需求分析）、`solution`（参数、步骤、
+约束和有界的脱敏代码模式）、`validation`（参数/静态/语义检查、自检和错误证据）以及
+`anti_patterns`（不应复用的失败做法）。失败或未验证的任务会以较低置信度保存，帮助
+后续任务识别风险，而不是盲目复用失败结果。
+
+例如，后续任务获得的历史经验会被整理为“问题 → 方案 → 验证证据 → 反模式”上下文，
+模型仍必须根据当前需求重新计算参数并通过当前校验；这属于可审计的项目级检索记忆，
+不是自动修改基础模型的训练过程。
+也可以通过 `MEMORY_PATH` 指定卡片文件位置。网页服务提供
+`POST /api/memories/feedback`（传入 `memory_id` 与 `helpful`）来提高或降低卡片置信度。
+
 交互界面依赖 `rich` 与 `prompt_toolkit`；两者缺失时非交互模式仍可正常使用。
 
 ### 网页前端：jwave studio
@@ -132,10 +147,11 @@ python -m jwave_flow --tui
 ./jwave_frontend/start.sh
 ```
 
-脚本默认使用 conda 环境 `jw`。如果当前环境名称不同，可以直接指定解释器：
+脚本不依赖 Conda 或固定的环境名称，默认使用当前 shell 中的 Python。
+如果需要指定解释器，可设置 `JWAVE_PYTHON`：
 
 ```bash
-python jwave_frontend/server.py
+JWAVE_PYTHON=/path/to/python ./jwave_frontend/start.sh
 ```
 
 然后打开 <http://127.0.0.1:8765>。启动前必须完成本节的 `.env` 配置；API Key
@@ -243,7 +259,7 @@ python tools/fix_kb.py --revert   # 回滚到原始知识库
 jwave_codeagent/
 ├── jwave_flow/
 │   ├── config.py               # 环境变量配置与端点解析
-│   ├── prompts.py              # 从 YAML 逐字提取的提示词
+│   ├── prompts.py              # 工作流提示词常量
 │   ├── llm.py                  # OpenAI 兼容模型 + 结构化输出回退
 │   ├── knowledge.py            # 知识库切分 + BM25 / embedding 检索
 │   ├── executor.py             # subprocess / jupyter / mcp 执行器
@@ -261,9 +277,8 @@ jwave_codeagent/
 │   ├── server.py               # 静态文件服务与 /api/run 流式接口
 │   ├── index.html              # 页面结构
 │   ├── app.js / styles.css     # 浏览器交互与样式
-│   ├── start.sh                # conda jw 环境启动脚本
+│   ├── start.sh                # 可移植的 Python 启动脚本
 │   └── README.md               # 前端单独说明
-├── docs/MAPPING.md             # Dify ↔ LangGraph 映射表
 └── tests/
 ```
 
@@ -273,8 +288,8 @@ jwave_codeagent/
 python -m pytest tests -q
 ```
 
-覆盖提示词与 YAML 的逐字保真、图拓扑、知识库检索、执行器契约、静态与语义规则，
-以及用 stub LLM 和本地 mock OpenAI 服务跑通整张图；不需要 API Key。
+覆盖提示词、知识库检索、执行器契约、静态与语义规则，以及用 stub LLM
+和本地 mock OpenAI 服务跑通整张图；不需要 API Key。
 
 前端的手工验证：
 
